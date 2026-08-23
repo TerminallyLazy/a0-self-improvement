@@ -1,0 +1,853 @@
+/* DSPy GEPA/RLM visual system: precision lab instrumentation. */
+
+.dspy-rlm-shell,
+.dspy-config-shell {
+  --rlm-ink: #080d12;
+  --rlm-surface: #111922;
+  --rlm-surface-raised: #17222d;
+  --rlm-line: rgba(170, 204, 218, 0.18);
+  --rlm-line-strong: rgba(170, 204, 218, 0.3);
+  --rlm-paper: #edf5f3;
+  --rlm-muted: #9fb0b7;
+  --rlm-cyan: #63d9d0;
+  --rlm-cyan-deep: #167d7b;
+  --rlm-amber: #f0b35a;
+  --rlm-coral: #f07f6c;
+  --rlm-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
+  font-family: "Avenir Next", Avenir, "Gill Sans", sans-serif;
+  color: var(--rlm-paper);
+}
+
+@keyframes rlm-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes rlm-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Main operational dashboard */
+.dspy-rlm-shell {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(16px, 2.3vw, 26px);
+  border: 1px solid var(--rlm-line-strong);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 82% -12%, rgba(99, 217, 208, 0.15), transparent 34%),
+    radial-gradient(circle at -8% 62%, rgba(240, 179, 90, 0.09), transparent 32%),
+    linear-gradient(145deg, #0a1118 0%, #101923 52%, #090e14 100%);
+  box-shadow: var(--rlm-shadow);
+}
+
+.dspy-rlm-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+.dspy-rlm-shell .dspy-rlm-header {
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.dspy-rlm-shell .brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.dspy-rlm-shell .brand-mark {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(99, 217, 208, 0.3);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(99,217,208,0.14), rgba(255,255,255,0.025));
+  box-shadow: inset 0 1px rgba(255,255,255,0.08), 0 10px 28px rgba(0,0,0,0.26);
+}
+
+.dspy-rlm-shell .brand-mark img {
+  width: 43px;
+  height: 43px;
+  object-fit: contain;
+}
+
+.dspy-rlm-shell .kicker {
+  margin: 0 0 4px;
+  font: 700 0.68rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.18em;
+  color: var(--rlm-cyan);
+}
+
+.dspy-rlm-shell .dspy-rlm-header h1 {
+  margin: 0;
+  font-family: Optima, "Avenir Next", sans-serif;
+  font-size: clamp(1.45rem, 2.8vw, 2rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.dspy-rlm-shell .dspy-rlm-header h1 span {
+  color: var(--rlm-muted);
+  font-weight: 430;
+}
+
+.dspy-rlm-shell .header-deck {
+  margin: 6px 0 0;
+  color: var(--rlm-muted);
+  font-size: 0.82rem;
+}
+
+.dspy-rlm-shell .header-actions {
+  gap: 8px;
+}
+
+.dspy-rlm-shell .btn {
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid var(--rlm-line-strong);
+  border-radius: 9px;
+  color: var(--rlm-paper);
+  background: rgba(255,255,255,0.045);
+  font-weight: 700;
+  transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.dspy-rlm-shell .btn:hover:not(:disabled) {
+  border-color: rgba(99,217,208,0.5);
+  background: rgba(99,217,208,0.09);
+  transform: translateY(-1px);
+}
+
+.dspy-rlm-shell .btn.is-primary,
+.dspy-rlm-shell .actions-row .btn {
+  color: #071312;
+  border-color: var(--rlm-cyan);
+  background: var(--rlm-cyan);
+}
+
+.dspy-rlm-shell .btn.is-primary:hover:not(:disabled),
+.dspy-rlm-shell .actions-row .btn:hover:not(:disabled) {
+  color: #071312;
+  background: #86e9e1;
+}
+
+.dspy-rlm-shell .btn:focus-visible,
+.dspy-rlm-shell input:focus-visible,
+.dspy-config-shell button:focus-visible,
+.dspy-config-shell input:focus-visible,
+.dspy-config-shell select:focus-visible,
+.dspy-config-shell textarea:focus-visible {
+  outline: 2px solid var(--rlm-cyan);
+  outline-offset: 2px;
+}
+
+.dspy-rlm-shell .status-band {
+  position: relative;
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  border-color: var(--rlm-line);
+  border-radius: 12px;
+  background: rgba(5, 10, 15, 0.54);
+  box-shadow: inset 0 1px rgba(255,255,255,0.025);
+}
+
+.dspy-rlm-shell .context-control {
+  min-width: min(340px, 100%);
+}
+
+.dspy-rlm-shell .context-control > span {
+  font: 700 0.65rem/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rlm-muted);
+}
+
+.dspy-rlm-shell .context-control input {
+  min-width: 0;
+  width: min(340px, 100%);
+  padding: 7px 9px;
+  border-radius: 7px;
+  border-color: var(--rlm-line);
+  background: rgba(255,255,255,0.045);
+  font: 600 0.78rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+.dspy-rlm-shell .status-badge {
+  position: relative;
+  padding: 5px 9px 5px 20px;
+  border-color: var(--rlm-line);
+  background: rgba(255,255,255,0.035);
+  font: 650 0.7rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+.dspy-rlm-shell .status-badge::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translateY(-50%);
+  box-shadow: 0 0 8px currentColor;
+}
+
+.dspy-rlm-shell .dspy-rlm-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.dspy-rlm-shell .dashboard-column {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.dspy-rlm-shell .panel {
+  position: relative;
+  min-width: 0;
+  padding: 15px;
+  gap: 11px;
+  border-color: var(--rlm-line);
+  border-radius: 13px;
+  background: linear-gradient(145deg, rgba(24,35,46,0.88), rgba(14,22,30,0.84));
+  box-shadow: inset 0 1px rgba(255,255,255,0.035);
+  animation: rlm-rise 300ms both;
+}
+
+.dspy-rlm-shell .dashboard-column--primary > .panel:nth-child(1) { animation-delay: 30ms; }
+.dspy-rlm-shell .dashboard-column--primary > .panel:nth-child(2) { animation-delay: 60ms; }
+.dspy-rlm-shell .dashboard-column--primary > .panel:nth-child(3) { animation-delay: 90ms; }
+.dspy-rlm-shell .dashboard-column--secondary > .panel:nth-child(1) { animation-delay: 70ms; }
+.dspy-rlm-shell .dashboard-column--secondary > .panel:nth-child(2) { animation-delay: 110ms; }
+.dspy-rlm-shell .dashboard-column--secondary > .panel:nth-child(3) { animation-delay: 150ms; }
+
+.dspy-rlm-shell .dashboard-column--primary > .panel:first-child {
+  border-color: rgba(99,217,208,0.3);
+  background:
+    linear-gradient(135deg, rgba(99,217,208,0.1), transparent 45%),
+    linear-gradient(145deg, rgba(24,35,46,0.94), rgba(14,22,30,0.9));
+}
+
+.dspy-rlm-shell .panel h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
+
+.dspy-rlm-shell .panel h2::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 3px;
+  background: var(--rlm-cyan);
+}
+
+.dspy-rlm-shell .metric-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.dspy-rlm-shell .dashboard-column--primary > .panel:nth-child(2) .metric-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dspy-rlm-shell .dashboard-column--primary > .panel:nth-child(3) .metric-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dspy-rlm-shell .dashboard-column--primary > .panel:nth-child(3) .metric-grid > div:first-child {
+  grid-column: 1 / -1;
+}
+
+.dspy-rlm-shell .metric-grid > div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(170,204,218,0.1);
+  border-radius: 9px;
+  background: rgba(0,0,0,0.14);
+}
+
+.dspy-rlm-shell .metric-label {
+  color: var(--rlm-muted);
+  font: 650 0.63rem/1.25 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.dspy-rlm-shell .metric-value {
+  margin-top: 5px;
+  color: var(--rlm-paper);
+  font-size: clamp(1rem, 2.2vw, 1.36rem);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.dspy-rlm-shell .panel-note {
+  color: #c7d2d6;
+  line-height: 1.45;
+}
+
+.dspy-rlm-shell .note-title,
+.dspy-rlm-shell .small-note,
+.dspy-rlm-shell .result-field span {
+  color: var(--rlm-muted);
+}
+
+.dspy-rlm-shell .meter,
+.dspy-rlm-shell .tool-row-meter-wrap {
+  background: rgba(255,255,255,0.06);
+}
+
+.dspy-rlm-shell .meter-fill,
+.dspy-rlm-shell .tool-row-meter-fill {
+  background: linear-gradient(90deg, var(--rlm-amber), var(--rlm-cyan));
+}
+
+.dspy-rlm-shell .guidance-block {
+  min-height: 54px;
+  border: 1px solid rgba(170,204,218,0.1);
+  background: rgba(4,9,13,0.46);
+  color: #dbe6e5;
+}
+
+.dspy-rlm-shell .panel-full {
+  margin-top: 12px;
+  background: rgba(7,12,17,0.56);
+}
+
+.plugin-page-loading {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-height: 260px;
+  padding: 56px 20px;
+  color: #edf5f3;
+  text-align: center;
+}
+
+.plugin-page-loading .loading-orbit {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 8px;
+  border: 2px solid rgba(99,217,208,0.16);
+  border-top-color: #63d9d0;
+  border-radius: 50%;
+  animation: rlm-spin 850ms linear infinite;
+}
+
+.plugin-page-loading .loading-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.plugin-page-loading .loading-copy {
+  margin: 0 0 10px;
+  color: #9fb0b7;
+  font-size: 0.82rem;
+}
+
+/* Settings: dense, legible, task-oriented controls. */
+.dspy-config-shell {
+  position: relative;
+  isolation: isolate;
+  padding: clamp(16px, 2.2vw, 24px);
+  border-color: var(--rlm-line-strong);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 88% -8%, rgba(99,217,208,0.13), transparent 30%),
+    linear-gradient(145deg, #0b1219 0%, #111b24 52%, #0a1016 100%);
+  box-shadow: var(--rlm-shadow);
+}
+
+.dspy-config-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.16;
+  background-image: radial-gradient(rgba(255,255,255,0.12) 0.7px, transparent 0.7px);
+  background-size: 14px 14px;
+}
+
+.dspy-config-shell .dspy-config-header {
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--rlm-line);
+}
+
+.dspy-config-shell .dspy-eyebrow {
+  color: var(--rlm-cyan);
+  font: 750 0.67rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.18em;
+}
+
+.dspy-config-shell h1 {
+  color: var(--rlm-paper);
+  font-family: Optima, "Avenir Next", sans-serif;
+  font-size: clamp(1.55rem, 3vw, 2.15rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.dspy-config-shell .dspy-subtitle {
+  max-width: 70ch;
+  color: var(--rlm-muted);
+  line-height: 1.45;
+}
+
+.dspy-config-shell .dspy-status-pill {
+  border-color: var(--rlm-line-strong);
+  background: rgba(255,255,255,0.035);
+  color: #d9e5e5;
+  font: 650 0.69rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+.dspy-config-shell .dspy-presets {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 10px;
+  border: 1px solid var(--rlm-line);
+  border-radius: 11px;
+  background: rgba(8,13,18,0.9);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  backdrop-filter: blur(14px);
+}
+
+.dspy-config-shell .dspy-presets::before {
+  content: "Operating profile";
+  margin: 0 6px 0 2px;
+  color: var(--rlm-muted);
+  font: 700 0.65rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.dspy-config-shell .dspy-btn {
+  padding: 7px 12px;
+  border-color: var(--rlm-line-strong);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.035);
+  color: var(--rlm-paper);
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.dspy-config-shell .dspy-btn:hover {
+  border-color: rgba(99,217,208,0.55);
+  background: rgba(99,217,208,0.09);
+  transform: translateY(-1px);
+}
+
+.dspy-config-shell .dspy-btn.is-strong {
+  border-color: rgba(99,217,208,0.58);
+  background: rgba(99,217,208,0.14);
+  color: #c8fff9;
+}
+
+.dspy-config-shell .dspy-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dspy-config-shell .dspy-grid > .dspy-card:only-child,
+.dspy-config-shell .dspy-grid > .dspy-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.dspy-config-shell .dspy-grid > .dspy-card {
+  margin-bottom: 12px;
+}
+
+.dspy-config-shell .dspy-grid > .dspy-card:last-child {
+  margin-bottom: 0;
+}
+
+.dspy-config-shell > .dspy-card + .dspy-card,
+.dspy-config-shell > .dspy-card + .dspy-grid {
+  margin-top: 12px;
+}
+
+.dspy-config-shell .dspy-card {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  align-content: start;
+  gap: 11px 14px;
+  padding: 15px;
+  border-color: var(--rlm-line);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(24,35,46,0.84), rgba(14,22,30,0.8));
+  box-shadow: inset 0 1px rgba(255,255,255,0.03);
+}
+
+.dspy-config-shell .dspy-card > h2,
+.dspy-config-shell .dspy-card > .hint,
+.dspy-config-shell .dspy-card > .dspy-grid--small,
+.dspy-config-shell .dspy-card > .dspy-matrix-grid {
+  grid-column: 1 / -1;
+}
+
+.dspy-config-shell .dspy-card > h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid rgba(170,204,218,0.11);
+  color: var(--rlm-paper);
+  font-size: 0.91rem;
+}
+
+.dspy-config-shell .dspy-card > h2 .section-disclosure {
+  min-width: 76px;
+  min-height: 28px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--rlm-line);
+  border-radius: 7px;
+  color: var(--rlm-muted);
+  background: rgba(0,0,0,0.16);
+  font: 700 0.63rem/1 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.dspy-config-shell .dspy-card > h2 .section-disclosure:hover {
+  border-color: rgba(99,217,208,0.45);
+  color: var(--rlm-paper);
+  background: rgba(99,217,208,0.08);
+}
+
+.dspy-config-shell .section-disclosure__chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 140ms ease;
+}
+
+.dspy-config-shell .dspy-card.is-collapsed {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+
+.dspy-config-shell .dspy-card.is-collapsed > :not(h2) {
+  display: none !important;
+}
+
+.dspy-config-shell .dspy-card.is-collapsed > h2 {
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+}
+
+.dspy-config-shell .dspy-card.is-collapsed .section-disclosure__chevron {
+  transform: rotate(-45deg);
+}
+
+.dspy-config-shell .dspy-card > h2::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  background: var(--rlm-cyan);
+}
+
+.dspy-config-shell .dspy-field,
+.dspy-config-shell .dspy-cell {
+  min-width: 0;
+  align-self: start;
+}
+
+.dspy-config-shell .dspy-field label,
+.dspy-config-shell .dspy-cell label,
+.dspy-config-shell .dspy-matrix-card label {
+  color: #d5e0e1;
+  font-size: 0.79rem;
+  line-height: 1.25;
+  align-content: start;
+}
+
+.dspy-config-shell .dspy-field-toggle {
+  min-height: 36px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid rgba(170,204,218,0.1);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.13);
+}
+
+.dspy-config-shell .dspy-field:has(.toggle) {
+  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid rgba(170,204,218,0.12);
+  border-radius: 9px;
+  background: rgba(0,0,0,0.14);
+  box-sizing: border-box;
+}
+
+.dspy-config-shell .dspy-field:has(.toggle) > label {
+  min-height: 20px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dspy-config-shell .dspy-field:has(.toggle) > small {
+  max-width: 44ch;
+}
+
+.dspy-config-shell .dspy-field input[type="number"],
+.dspy-config-shell .dspy-cell input,
+.dspy-config-shell .dspy-field input[type="text"],
+.dspy-config-shell .dspy-field select,
+.dspy-config-shell .dspy-cell select,
+.dspy-config-shell .dspy-matrix-card input,
+.dspy-config-shell textarea {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border-color: var(--rlm-line-strong);
+  border-radius: 8px;
+  background: rgba(4,9,13,0.72);
+  color: var(--rlm-paper);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.32);
+  box-sizing: border-box;
+}
+
+.dspy-config-shell textarea {
+  min-height: 92px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.dspy-config-shell .dspy-card small,
+.dspy-config-shell .dspy-cell small,
+.dspy-config-shell .hint {
+  color: var(--rlm-muted);
+  font-size: 0.69rem;
+  line-height: 1.38;
+}
+
+.dspy-config-shell .dspy-grid--small {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+  gap: 10px;
+}
+
+.dspy-config-shell .dspy-matrix-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  gap: 12px;
+}
+
+.dspy-config-shell .dspy-matrix-card {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 9px 12px;
+  padding: 14px;
+  border-color: var(--rlm-line);
+  background: rgba(7,13,18,0.48);
+}
+
+.dspy-config-shell .dspy-matrix-card header,
+.dspy-config-shell .dspy-matrix-card .dspy-field-toggle {
+  grid-column: 1 / -1;
+}
+
+.dspy-config-shell .dspy-matrix-card header {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(170,204,218,0.11);
+  color: var(--rlm-cyan);
+  font: 750 0.75rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dspy-config-shell .prompt-lab {
+  border-color: rgba(99,217,208,0.34);
+  background: linear-gradient(135deg, rgba(99,217,208,0.08), rgba(7,13,18,0.62) 42%);
+}
+
+.dspy-config-shell .prompt-lab__warning {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(99,217,208,0.24);
+  border-radius: 8px;
+  color: #cfe5e6;
+  background: rgba(0,0,0,0.18);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.dspy-config-shell .prompt-lab__columns {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(190px, 0.72fr);
+  gap: 12px;
+}
+
+.dspy-config-shell .prompt-lab__group,
+.dspy-config-shell .prompt-lab__protected {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid var(--rlm-line);
+  border-radius: 9px;
+  background: rgba(4,9,13,0.48);
+}
+
+.dspy-config-shell .prompt-lab__group h3,
+.dspy-config-shell .prompt-lab__protected h3 {
+  margin: 0 0 3px;
+  color: var(--rlm-cyan);
+  font: 750 0.72rem/1.2 ui-monospace, "SFMono-Regular", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dspy-config-shell .prompt-lab__group label {
+  display: grid;
+  gap: 5px;
+  color: #d5e0e1;
+  font-size: 0.75rem;
+}
+
+.dspy-config-shell .prompt-lab__protected p {
+  margin: 0;
+  padding-left: 12px;
+  color: var(--rlm-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  position: relative;
+}
+
+.dspy-config-shell .prompt-lab__protected p::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.48em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--rlm-cyan);
+}
+
+.dspy-config-shell .toggle {
+  width: 34px;
+  height: 18px;
+  flex: 0 0 34px;
+}
+
+.dspy-config-shell .toggle .slider {
+  width: 34px;
+  height: 18px;
+  background: rgba(159,176,183,0.32);
+}
+
+.dspy-config-shell .toggle .slider::after {
+  width: 12px;
+  height: 12px;
+  top: 3px;
+  left: 3px;
+}
+
+.dspy-config-shell .toggle input:checked + .slider {
+  background: var(--rlm-cyan-deep);
+}
+
+.dspy-config-shell .toggle input:checked + .slider::after {
+  transform: translateX(16px);
+  background: #d9fffb;
+  box-shadow: 0 0 8px rgba(99,217,208,0.38);
+}
+
+@media (max-width: 860px) {
+  .dspy-rlm-shell .dspy-rlm-grid { grid-template-columns: 1fr; }
+  .dspy-rlm-shell .dspy-rlm-grid > .panel:nth-child(n) { grid-column: span 12; }
+  .dspy-rlm-shell .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dspy-config-shell .dspy-grid { grid-template-columns: 1fr; }
+  .dspy-config-shell .dspy-grid > .dspy-card:nth-child(n) { grid-column: auto; }
+  .dspy-config-shell .dspy-grid--small { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dspy-config-shell .prompt-lab__columns { grid-template-columns: 1fr 1fr; }
+  .dspy-config-shell .prompt-lab__protected { grid-column: 1 / -1; }
+}
+
+@media (max-width: 620px) {
+  .dspy-rlm-shell,
+  .dspy-config-shell { padding: 13px; border-radius: 12px; }
+  .dspy-rlm-shell .dspy-rlm-header { align-items: flex-start; }
+  .dspy-rlm-shell .dspy-rlm-header,
+  .dspy-rlm-shell .header-actions { flex-direction: column; width: 100%; }
+  .dspy-rlm-shell .header-actions .btn { width: 100%; }
+  .dspy-rlm-shell .brand-mark { width: 46px; height: 46px; border-radius: 13px; }
+  .dspy-rlm-shell .brand-mark img { width: 36px; height: 36px; }
+  .dspy-rlm-shell .badge-strip { width: 100%; }
+  .dspy-config-shell .dspy-card,
+  .dspy-config-shell .dspy-matrix-card,
+  .dspy-config-shell .dspy-grid--small { grid-template-columns: 1fr; }
+  .dspy-config-shell .dspy-matrix-card > * { grid-column: 1 !important; }
+  .dspy-config-shell .prompt-lab__columns { grid-template-columns: 1fr; }
+  .dspy-config-shell .prompt-lab__protected { grid-column: auto; }
+  .dspy-config-shell .dspy-presets { position: static; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .dspy-config-shell .dspy-presets::before { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dspy-rlm-shell .panel,
+  .dspy-config-shell,
+  .plugin-page-loading .loading-orbit {
+    animation: none !important;
+    transition: none !important;
+  }
+}

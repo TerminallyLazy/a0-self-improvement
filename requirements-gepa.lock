@@ -1,0 +1,5 @@
+# Direct worker pins validated against the current DSPy RLM/GEPA API. Installation
+# is always scoped to state/worker-venv and never mutates Agent Zero's interpreter.
+dspy[deno]==3.3.1
+gepa[dspy]==0.1.4
+dspy-cli==0.1.13

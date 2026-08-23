@@ -1,0 +1,9 @@
+name: dspy_rlm
+title: A0 Self-Improvement
+description: Improves Agent Zero with DSPy GEPA optimization, bounded RLM analysis of execution evidence, semantic evaluation, and managed multiprocess workers.
+version: 1.0.0
+always_enabled: false
+settings_sections:
+  - agent
+per_project_config: false
+per_agent_config: false
