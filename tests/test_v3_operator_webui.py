@@ -129,3 +129,4 @@ def test_overview_axis_cards_contain_long_projection_reasons() -> None:
     assert ".axis-card > * { min-width:0; max-width:100%; }" in MAIN
     assert "overflow:hidden; }" in MAIN
     assert "overflow-wrap:anywhere; word-break:break-word;" in MAIN
+    assert ".metric-grid span { display:block; min-width:0; min-height:2.5em;" in MAIN

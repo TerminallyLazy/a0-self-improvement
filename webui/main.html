@@ -2,7 +2,7 @@
   <head>
     <title>A0 Self-Improvement</title>
     <script type="module">
-      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=305";
+      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=306";
     </script>
   </head>
   <body>
@@ -591,7 +591,7 @@
       #a0si-operator .confirmation { border-color:rgba(98,223,170,.45); }
       #a0si-operator .metric-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
       #a0si-operator .metric-grid > div { display:grid; gap:4px; min-width:0; padding:10px; border:1px solid var(--a0si-line); border-radius:8px; background:rgba(255,255,255,.025); }
-      #a0si-operator .metric-grid span { color:var(--a0si-soft); overflow-wrap:break-word; }
+      #a0si-operator .metric-grid span { display:block; min-width:0; min-height:2.5em; color:var(--a0si-soft); font-size:12px; line-height:1.25; white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
       #a0si-operator .metric-grid strong { font-size:20px; }
       #a0si-operator .local-only { border-style:dashed; }
       #a0si-operator .operation-facts { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; min-width:0; max-width:70%; }
