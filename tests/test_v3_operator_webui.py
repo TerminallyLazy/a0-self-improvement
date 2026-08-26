@@ -120,6 +120,10 @@ def test_context_picker_groups_agent_zero_chats_by_project() -> None:
     assert "$store.dspyRlm.selectProjectChat(chat.id)" in MAIN
     assert 'placeholder="Select a context"' not in MAIN
 
+    init_runtime = STORE[STORE.index("async initRuntime()") : STORE.index("setActiveView(viewId)")]
+    assert init_runtime.index("const detectedContext = detectContextId();") < init_runtime.index("if (this.initialized)")
+    assert "detectedContext !== this.contextId" in init_runtime
+
 
 def test_overview_axis_cards_contain_long_projection_reasons() -> None:
     assert ".axis-card > * { min-width:0; max-width:100%; }" in MAIN

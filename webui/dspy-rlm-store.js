@@ -571,9 +571,18 @@ export const store = createStore("dspyRlm", {
   },
 
   async initRuntime() {
-    if (this.initialized) return;
+    const detectedContext = detectContextId();
+    if (this.initialized) {
+      if (detectedContext && detectedContext !== this.contextId) {
+        this.contextId = detectedContext;
+        this.selectedCandidateRef = null;
+        this.pendingAction = null;
+        await this.refreshAll();
+      }
+      return;
+    }
     this.initialized = true;
-    this.contextId = detectContextId();
+    this.contextId = detectedContext;
     await this.refreshAll();
   },
 
