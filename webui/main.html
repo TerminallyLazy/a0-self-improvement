@@ -2,7 +2,7 @@
   <head>
     <title>A0 Self-Improvement</title>
     <script type="module">
-      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=306";
+      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=307";
     </script>
   </head>
   <body>
@@ -13,9 +13,15 @@
           <h1>Operator console</h1>
           <p class="deck">Authority-ranked, content-free state for the selected context.</p>
         </div>
-        <button class="button" @click="$store.dspyRlm.refreshAll()" :disabled="$store.dspyRlm.loading">
-          <span x-text="$store.dspyRlm.loading ? 'Reading…' : 'Refresh receipts'">Refresh receipts</span>
-        </button>
+        <div class="live-controls">
+          <span class="live-status" :class="{ 'is-connected': $store.dspyRlm.liveConnected }">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span x-text="$store.dspyRlm.liveLabel">Reconnecting</span>
+          </span>
+          <button class="button" @click="$store.dspyRlm.refreshAll()" :disabled="$store.dspyRlm.loading">
+            <span x-text="$store.dspyRlm.loading ? 'Reading…' : 'Refresh now'">Refresh now</span>
+          </button>
+        </div>
       </header>
 
       <section class="context-band" x-data="{ projectChatsOpen: false }" @keydown.escape.window="projectChatsOpen = false">
@@ -90,6 +96,79 @@
             <h2>Overview</h2>
           </div>
         </div>
+
+        <article class="automation-board">
+          <div class="automation-hero">
+            <div>
+              <p class="eyebrow">Closed-loop automation</p>
+              <div class="automation-title-row">
+                <h3 x-text="$store.dspyRlm.automationModeLabel"></h3>
+                <span class="pill" :class="$store.dspyRlm.axisClass({ state: $store.dspyRlm.automation.cycle_state })" x-text="$store.dspyRlm.automation.cycle_state"></span>
+              </div>
+              <p class="panel-note">
+                <span x-text="$store.dspyRlm.automationScopeLabel"></span>
+                · <span x-text="$store.dspyRlm.automation.risk_profile"></span>
+                · conversation content <span x-text="$store.dspyRlm.automation.conversation_content"></span>
+              </p>
+            </div>
+            <dl class="automation-worker-facts">
+              <div><dt>Workers</dt><dd><span x-text="$store.dspyRlm.automation.workers.running"></span>/<span x-text="$store.dspyRlm.automation.workers.desired"></span></dd></div>
+              <div><dt>Last update</dt><dd x-text="$store.dspyRlm.observedLabel($store.dspyRlm.automation.observed_at)"></dd></div>
+            </dl>
+          </div>
+
+          <div class="automation-metrics">
+            <div><span>Observations</span><strong x-text="$store.dspyRlm.automation.counts.observations"></strong></div>
+            <div><span>Queued work</span><strong x-text="$store.dspyRlm.automation.counts.queued_work"></strong></div>
+            <div><span>Candidates</span><strong x-text="$store.dspyRlm.automation.counts.candidates"></strong></div>
+            <div><span>Receipts</span><strong x-text="$store.dspyRlm.automation.counts.receipts"></strong></div>
+          </div>
+
+          <div class="automation-columns">
+            <section>
+              <div class="panel-title-row">
+                <h4>Candidate generation</h4>
+                <span class="pill" :class="$store.dspyRlm.axisClass($store.dspyRlm.automation.generation)" x-text="$store.dspyRlm.automation.generation.state"></span>
+              </div>
+              <div class="gate-grid">
+                <template x-for="gate in $store.dspyRlm.automation.generation.gates" :key="gate.gate_id">
+                  <div class="gate-row">
+                    <span x-text="gate.gate_id"></span>
+                    <small :class="$store.dspyRlm.axisClass(gate)" x-text="gate.state === 'ready' ? 'ready' : gate.reason_code"></small>
+                  </div>
+                </template>
+              </div>
+            </section>
+            <section>
+              <div class="panel-title-row">
+                <h4>Automatic promotion</h4>
+                <span class="pill" :class="$store.dspyRlm.axisClass($store.dspyRlm.automation.promotion)" x-text="$store.dspyRlm.automation.promotion.state"></span>
+              </div>
+              <div class="gate-grid">
+                <template x-for="gate in $store.dspyRlm.automation.promotion.gates" :key="gate.gate_id">
+                  <div class="gate-row">
+                    <span x-text="gate.gate_id"></span>
+                    <small :class="$store.dspyRlm.axisClass(gate)" x-text="gate.state === 'ready' ? 'ready' : gate.reason_code"></small>
+                  </div>
+                </template>
+              </div>
+            </section>
+          </div>
+
+          <section class="automation-activity">
+            <div class="panel-title-row"><h4>Recent activity</h4><small>Updates while this screen is open</small></div>
+            <div class="activity-strip">
+              <template x-for="activity in $store.dspyRlm.automation.recent_activity" :key="activity.activity_id">
+                <div class="activity-item">
+                  <span class="activity-mark" :class="$store.dspyRlm.axisClass(activity)"></span>
+                  <div><strong x-text="activity.kind"></strong><small x-text="$store.dspyRlm.observedLabel(activity.observed_at)"></small></div>
+                  <span class="pill" :class="$store.dspyRlm.axisClass(activity)" x-text="activity.state"></span>
+                </div>
+              </template>
+              <p class="empty" x-show="!$store.dspyRlm.automation.recent_activity.length">Waiting for the first safe observation.</p>
+            </div>
+          </section>
+        </article>
 
         <div class="axis-grid">
           <article class="axis-card">
@@ -474,6 +553,12 @@
       #a0si-operator .panel-title-row,
       #a0si-operator .context-band { display:flex; align-items:center; justify-content:space-between; gap:18px; min-width:0; }
       #a0si-operator .operator-header { padding-bottom:4px; }
+      #a0si-operator .live-controls,
+      #a0si-operator .live-status { display:flex; align-items:center; gap:10px; }
+      #a0si-operator .live-controls { flex:0 0 auto; }
+      #a0si-operator .live-status { color:var(--a0si-soft); font-size:12px; font-weight:700; }
+      #a0si-operator .live-dot { width:8px; height:8px; border-radius:50%; background:var(--a0si-warn); box-shadow:0 0 0 4px rgba(255,196,93,.10); }
+      #a0si-operator .live-status.is-connected .live-dot { background:var(--a0si-ok); box-shadow:0 0 0 4px rgba(98,223,170,.10),0 0 16px rgba(98,223,170,.4); }
       #a0si-operator .eyebrow { margin-bottom:6px; color:var(--a0si-accent); font-size:10px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; }
       #a0si-operator .deck,
       #a0si-operator .panel-note,
@@ -534,6 +619,36 @@
       #a0si-operator .loading { display:flex; align-items:center; padding:24px; color:var(--a0si-soft); }
       #a0si-operator .loading-dot { display:inline-block; width:8px; height:8px; margin-right:8px; border-radius:50%; background:var(--a0si-accent); }
       #a0si-operator .axis-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px; }
+      #a0si-operator .automation-board { display:grid; gap:16px; min-width:0; margin-bottom:16px; padding:20px; overflow:hidden; border:1px solid rgba(142,171,255,.34); border-radius:15px; background:radial-gradient(circle at top left,rgba(41,98,173,.2),transparent 42%),linear-gradient(145deg,#0b1830,#081222); box-shadow:0 18px 44px rgba(0,0,0,.24); }
+      #a0si-operator .automation-hero,
+      #a0si-operator .automation-title-row { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; min-width:0; }
+      #a0si-operator .automation-title-row { align-items:center; justify-content:flex-start; }
+      #a0si-operator .automation-title-row h3 { margin:0; font-size:25px; }
+      #a0si-operator .automation-worker-facts { display:grid; min-width:min(280px,40%); margin:0; }
+      #a0si-operator .automation-worker-facts > div { display:grid; grid-template-columns:auto minmax(0,1fr); gap:12px; padding:5px 0; }
+      #a0si-operator .automation-worker-facts dd { font-size:12px; }
+      #a0si-operator .automation-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+      #a0si-operator .automation-metrics > div { display:grid; gap:5px; min-width:0; padding:12px; border:1px solid var(--a0si-line); border-radius:9px; background:rgba(255,255,255,.035); }
+      #a0si-operator .automation-metrics span { color:var(--a0si-soft); font-size:12px; }
+      #a0si-operator .automation-metrics strong { font-size:22px; }
+      #a0si-operator .automation-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; min-width:0; }
+      #a0si-operator .automation-columns > section { min-width:0; padding:14px; border:1px solid var(--a0si-line); border-radius:10px; background:rgba(1,7,15,.28); }
+      #a0si-operator .automation-columns h4,
+      #a0si-operator .automation-activity h4 { margin:0; }
+      #a0si-operator .gate-grid { display:grid; gap:0; min-width:0; margin-top:10px; }
+      #a0si-operator .gate-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px; min-width:0; padding:8px 0; border-top:1px solid var(--a0si-line); }
+      #a0si-operator .gate-row span,
+      #a0si-operator .gate-row small { min-width:0; overflow-wrap:anywhere; }
+      #a0si-operator .gate-row small { color:var(--a0si-soft); text-align:right; }
+      #a0si-operator .automation-activity { min-width:0; }
+      #a0si-operator .automation-activity .panel-title-row small { color:var(--a0si-soft); }
+      #a0si-operator .activity-strip { display:grid; gap:0; min-width:0; margin-top:8px; }
+      #a0si-operator .activity-item { display:grid; grid-template-columns:10px minmax(0,1fr) auto; align-items:center; gap:10px; min-width:0; padding:9px 0; border-top:1px solid var(--a0si-line); }
+      #a0si-operator .activity-item > div { display:grid; gap:2px; min-width:0; }
+      #a0si-operator .activity-item strong,
+      #a0si-operator .activity-item small { min-width:0; overflow-wrap:anywhere; }
+      #a0si-operator .activity-item small { color:var(--a0si-soft); }
+      #a0si-operator .activity-mark { width:8px; height:8px; border-radius:50%; background:currentColor; }
       #a0si-operator .axis-card,
       #a0si-operator .panel { min-width:0; border:1px solid var(--a0si-line); border-radius:13px; background:linear-gradient(145deg,var(--a0si-panel-raised),var(--a0si-panel)); box-shadow:0 14px 34px rgba(0,0,0,.18); }
       #a0si-operator .axis-card { display:flex; flex-direction:column; gap:6px; min-height:108px; padding:15px; overflow:hidden; }
@@ -603,7 +718,8 @@
       @container a0si (max-width:840px) {
         #a0si-operator .axis-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
         #a0si-operator .two-column,
-        #a0si-operator .candidate-layout { grid-template-columns:1fr; }
+        #a0si-operator .candidate-layout,
+        #a0si-operator .automation-columns { grid-template-columns:1fr; }
         #a0si-operator .candidate-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
         #a0si-operator .facts-wide,
         #a0si-operator .action-grid { grid-template-columns:1fr; }
@@ -615,11 +731,15 @@
         #a0si-operator .context-band,
         #a0si-operator .view-heading,
         #a0si-operator .panel-title-row { align-items:flex-start; flex-direction:column; }
+        #a0si-operator .live-controls,
+        #a0si-operator .automation-hero { width:100%; align-items:flex-start; flex-direction:column; }
+        #a0si-operator .automation-worker-facts { width:100%; min-width:0; }
         #a0si-operator .context-picker { width:100%; grid-template-columns:1fr; }
         #a0si-operator .project-chat-menu { left:0; right:auto; width:100%; }
         #a0si-operator .axis-grid,
         #a0si-operator .candidate-list,
-        #a0si-operator .metric-grid { grid-template-columns:1fr; }
+        #a0si-operator .metric-grid,
+        #a0si-operator .automation-metrics { grid-template-columns:1fr; }
         #a0si-operator .facts > div,
         #a0si-operator .row,
         #a0si-operator .axis-line { grid-template-columns:1fr; }

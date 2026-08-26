@@ -249,6 +249,25 @@ def _project_context_refs(
     return tuple(sorted(contexts))
 
 
+def project_context_refs(
+    *,
+    project_ref: str,
+    current_context_ref: str,
+    chats_dir: Path | None = None,
+) -> tuple[str, ...]:
+    """Return persisted chats assigned to one exact Agent Zero project.
+
+    This is discovery only. It reads bounded ``chat.json`` identity metadata
+    and neither opens nor mutates the v3 authority store.
+    """
+
+    return _project_context_refs(
+        chats_dir or paths.PLUGIN_ROOT.parents[1] / "chats",
+        project_ref=_safe_ref(project_ref, "project_ref"),
+        current_context_ref=_safe_ref(current_context_ref, "current_context_ref"),
+    )
+
+
 def _repository() -> V3Repository:
     manifest = StoreAuthorityManifestStore(paths.STORE_AUTHORITY_MANIFEST_FILE).read()
     if manifest is None and not paths.SAFE_STORE_FILE.exists():
@@ -348,8 +367,8 @@ def ensure_project_genesis(
     project = _safe_ref(project_ref, "project_ref")
     current = _safe_ref(current_context_ref, "current_context_ref")
     reference_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    discovered = _project_context_refs(
-        chats_dir or paths.PLUGIN_ROOT.parents[1] / "chats",
+    discovered = project_context_refs(
+        chats_dir=chats_dir,
         project_ref=project,
         current_context_ref=current,
     )

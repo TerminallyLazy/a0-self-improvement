@@ -5,6 +5,7 @@ import { store as chatsStore } from "/components/sidebar/chats/chats-store.js";
 
 const API_BASE = "/plugins/dspy_rlm";
 const PUBLIC_STATUS_SCHEMA = "a0.public-status.v1";
+const AUTOPILOT_STATUS_SCHEMA = "a0.autopilot-status.v1";
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 const SAFE_COLOR = /^#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?$/;
@@ -80,6 +81,70 @@ function safePairs(value) {
       .filter(([key, count]) => SAFE_TOKEN.test(key) && Number.isInteger(count) && count >= 0)
       .map(([key, count]) => [key, count]),
   );
+}
+
+function unavailableAutomation() {
+  return {
+    observed_at: null,
+    mode: "observe",
+    scope: "project",
+    context_count: 1,
+    risk_profile: "balanced",
+    cycle_state: "unavailable",
+    live_refresh_seconds: 2,
+    generation: { state: "blocked", gates: [] },
+    promotion: { state: "blocked", gates: [] },
+    counts: { observations: 0, candidates: 0, receipts: 0, queued_work: 0 },
+    workers: { desired: 0, running: 0, state: "unavailable" },
+    recent_activity: [],
+    conversation_content: "excluded",
+  };
+}
+
+function normalizeAutomation(raw, contextId) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return unavailableAutomation();
+  if (raw.schema !== AUTOPILOT_STATUS_SCHEMA || safeToken(raw.context_ref, "") !== contextId) {
+    return unavailableAutomation();
+  }
+  const normalizeGateGroup = (value = {}) => ({
+    state: safeToken(value.state, "blocked"),
+    gates: Array.isArray(value.gates) ? value.gates.slice(0, 24).map((gate) => ({
+      gate_id: safeToken(gate?.gate_id),
+      state: safeToken(gate?.state, "blocked"),
+      reason_code: safeToken(gate?.reason_code),
+    })) : [],
+  });
+  const counts = raw.counts && typeof raw.counts === "object" ? raw.counts : {};
+  const workers = raw.workers && typeof raw.workers === "object" ? raw.workers : {};
+  return {
+    observed_at: safeTimestamp(raw.observed_at),
+    mode: ["observe", "review", "autopilot"].includes(raw.mode) ? raw.mode : "observe",
+    scope: ["current_chat", "project"].includes(raw.scope) ? raw.scope : "project",
+    context_count: Math.max(1, safeCount(raw.context_count)),
+    risk_profile: ["safe", "balanced", "aggressive"].includes(raw.risk_profile) ? raw.risk_profile : "balanced",
+    cycle_state: safeToken(raw.cycle_state),
+    live_refresh_seconds: Math.max(1, Math.min(30, safeCount(raw.live_refresh_seconds) || 2)),
+    generation: normalizeGateGroup(raw.generation),
+    promotion: normalizeGateGroup(raw.promotion),
+    counts: {
+      observations: safeCount(counts.observations),
+      candidates: safeCount(counts.candidates),
+      receipts: safeCount(counts.receipts),
+      queued_work: safeCount(counts.queued_work),
+    },
+    workers: {
+      desired: safeCount(workers.desired),
+      running: safeCount(workers.running),
+      state: safeToken(workers.state),
+    },
+    recent_activity: Array.isArray(raw.recent_activity) ? raw.recent_activity.slice(0, 10).map((item) => ({
+      activity_id: safeToken(item?.activity_id),
+      kind: safeToken(item?.kind),
+      state: safeToken(item?.state),
+      observed_at: safeTimestamp(item?.observed_at),
+    })) : [],
+    conversation_content: raw.conversation_content === "excluded" ? "excluded" : "unavailable",
+  };
 }
 
 function axis(value = {}, reason = "projection_unavailable") {
@@ -466,6 +531,10 @@ export const store = createStore("dspyRlm", {
   receiptFilter: "all",
   selectedCandidateRef: null,
   pendingAction: null,
+  automation: unavailableAutomation(),
+  liveTimer: null,
+  liveRefreshing: false,
+  liveConnected: false,
   projections: {
     overview: unavailableOverview(),
     candidates: unavailableCandidates(),
@@ -485,6 +554,28 @@ export const store = createStore("dspyRlm", {
   get privacyMigration() { return this.projections.privacy_migration; },
   get policyCapabilities() { return this.projections.policy_capabilities; },
   get receiptsAudit() { return this.projections.receipts_audit; },
+
+  get liveLabel() {
+    if (!this.liveConnected) return "Reconnecting";
+    return `Live · ${this.automation.live_refresh_seconds}s`;
+  },
+
+  get automationModeLabel() {
+    return this.automation.mode === "autopilot"
+      ? "Autopilot"
+      : this.automation.mode === "review" ? "Review" : "Observe";
+  },
+
+  get automationScopeLabel() {
+    if (this.automation.scope !== "project") return "Current chat";
+    const count = this.automation.context_count;
+    return `Project scope · ${count} ${count === 1 ? "chat" : "chats"}`;
+  },
+
+  get blockedAutomationGates() {
+    return [...this.automation.generation.gates, ...this.automation.promotion.gates]
+      .filter((gate) => gate.state !== "ready");
+  },
 
   get selectedChatMetadata() {
     const contexts = Array.isArray(chatsStore.contexts) ? chatsStore.contexts : [];
@@ -584,6 +675,7 @@ export const store = createStore("dspyRlm", {
     this.initialized = true;
     this.contextId = detectedContext;
     await this.refreshAll();
+    this.startLiveUpdates();
   },
 
   setActiveView(viewId) {
@@ -670,6 +762,44 @@ export const store = createStore("dspyRlm", {
     }
     this.loaded = true;
     this.loading = false;
+    await this.refreshLive();
+  },
+
+  async refreshLive() {
+    if (this.liveRefreshing || !this.contextId || document.hidden) return;
+    this.liveRefreshing = true;
+    try {
+      const payload = await callJsonApi(`${API_BASE}/autopilot_status`, {
+        context_id: this.contextId,
+      });
+      this.automation = normalizeAutomation(payload, this.contextId);
+      this.liveConnected = this.automation.observed_at !== null;
+      const viewId = this.activeView === "overview" || this.activeView === "receipts_audit"
+        ? this.activeView
+        : null;
+      if (viewId) {
+        const projection = await callJsonApi(`${API_BASE}/operator_projection`, {
+          context_id: this.contextId,
+          view: viewId,
+        });
+        this.projections[viewId] = NORMALIZERS[viewId](projection, this.contextId);
+      }
+    } catch (_) {
+      this.liveConnected = false;
+    } finally {
+      this.liveRefreshing = false;
+    }
+  },
+
+  startLiveUpdates() {
+    if (this.liveTimer) window.clearTimeout(this.liveTimer);
+    const tick = async () => {
+      await this.refreshLive();
+      const delay = Math.max(1, this.automation.live_refresh_seconds || 2) * 1000;
+      this.liveTimer = window.setTimeout(tick, delay);
+    };
+    const delay = Math.max(1, this.automation.live_refresh_seconds || 2) * 1000;
+    this.liveTimer = window.setTimeout(tick, delay);
   },
 
   actionFor(candidate, actionName) {

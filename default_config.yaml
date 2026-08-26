@@ -8,6 +8,20 @@ instrumentation_enabled: false
 auto_enqueue: false
 status_refresh_seconds: 8
 
+# Automation is independent from the Safe/Balanced/Aggressive evaluation
+# profile. Observe is the public default; Review and Autopilot are explicit
+# operator choices. Conversation bodies are never an automation input.
+automation:
+  mode: observe
+  scope: project
+  risk_profile: balanced
+  live_refresh_seconds: 2
+  capture_system_prompts: false
+  include_conversation_content: false
+  require_replay: true
+  require_canary: true
+  automatic_rollback: true
+
 trace_capture:
   max_events_per_context: 1800
   max_events_per_loop: 160

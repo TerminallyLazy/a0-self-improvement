@@ -8,6 +8,7 @@ from typing import Any
 from helpers.extension import Extension
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
+from usr.plugins.dspy_rlm.helpers import autopilot
 from usr.plugins.dspy_rlm.helpers import paths
 from usr.plugins.dspy_rlm.helpers.v3.canary_runtime import (
     CANARY_ASSIGNMENT_KEY_ENV,
@@ -45,7 +46,7 @@ def _ordinary_context(agent: object) -> tuple[object, str] | None:
 
 
 class DspyRlmOptimizationScheduler(Extension):
-    """Retained name; records facts only and never schedules optimization."""
+    """Record safe facts and schedule operator-selected candidate generation."""
 
     async def execute(self, loop_data: Any = None, **kwargs: Any) -> None:
         try:
@@ -75,6 +76,7 @@ class DspyRlmOptimizationScheduler(Extension):
                 pre_cutover_path=paths.SAFE_STORE_FILE,
                 manifest_path=paths.STORE_AUTHORITY_MANIFEST_FILE,
             ) as repository:
+                recorded = False
                 selection = params.get(CANARY_SELECTION_LOOP_KEY)
                 secret = _assignment_secret()
                 if type(selection) is CanaryRuntimeSelection and secret is not None:
@@ -101,10 +103,20 @@ class DspyRlmOptimizationScheduler(Extension):
                                 assignment_secret=secret,
                                 now=datetime.now(timezone.utc),
                             )
-                            return
+                            recorded = True
                         except Exception:
                             pass
-                record_runtime_observation(repository, request)
+                if not recorded:
+                    record_runtime_observation(repository, request)
+            message_ref = getattr(getattr(loop_data, "user_message", None), "id", None)
+            if type(message_ref) is str and message_ref:
+                autopilot.observe_loop_and_schedule(
+                    agent=agent,
+                    context_ref=context_ref,
+                    message_ref=message_ref,
+                    loop_iteration=iteration,
+                    config=cfg,
+                )
         except Exception:
             # Observation is optional to ordinary Agent Zero behavior. Missing,
             # stale, corrupt, or unsupported authority must remain inert and no

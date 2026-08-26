@@ -130,3 +130,12 @@ def test_overview_axis_cards_contain_long_projection_reasons() -> None:
     assert "overflow:hidden; }" in MAIN
     assert "overflow-wrap:anywhere; word-break:break-word;" in MAIN
     assert ".metric-grid span { display:block; min-width:0; min-height:2.5em;" in MAIN
+
+
+def test_overview_exposes_live_autopilot_observability() -> None:
+    assert "Closed-loop automation" in MAIN
+    assert "Automatic promotion" in MAIN
+    assert "Recent activity" in MAIN
+    assert "autopilot_status" in STORE
+    assert "startLiveUpdates" in STORE
+    assert "document.hidden" in STORE

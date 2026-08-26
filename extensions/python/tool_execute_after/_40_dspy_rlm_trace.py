@@ -7,6 +7,7 @@ from helpers.extension import Extension
 from helpers.tool import Response
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
+from usr.plugins.dspy_rlm.helpers import autopilot
 from usr.plugins.dspy_rlm.helpers import paths
 from usr.plugins.dspy_rlm.helpers.v3.observation import (
     RuntimeObservationRequest,
@@ -76,6 +77,19 @@ class DspyRlmToolTrace(Extension):
                 manifest_path=paths.STORE_AUTHORITY_MANIFEST_FILE,
             ) as repository:
                 record_runtime_observation(repository, request)
+            current_tool = getattr(loop_data, "current_tool", None)
+            tool_name = (
+                getattr(current_tool, "name", None)
+                or getattr(current_tool, "tool_name", None)
+                or type(current_tool).__name__
+            )
+            autopilot.record_tool_metadata(
+                context_ref=context_ref,
+                tool_name=str(tool_name or "unknown"),
+                loop_iteration=iteration,
+                terminal=terminal,
+                config=cfg,
+            )
         except Exception:
             # Observation must never interfere with tool continuation or retain
             # tool/provider/error content through a diagnostic fallback.

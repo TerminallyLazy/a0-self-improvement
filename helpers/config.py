@@ -258,6 +258,50 @@ def normalize_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "status_refresh_seconds": _as_int(cfg.get("status_refresh_seconds", 8), 8, 1, 120),
     }
 
+    automation_defaults = {
+        "mode": "observe",
+        "scope": "project",
+        "risk_profile": "balanced",
+        "live_refresh_seconds": 2,
+        "capture_system_prompts": False,
+        "include_conversation_content": False,
+        "require_replay": True,
+        "require_canary": True,
+        "automatic_rollback": True,
+    }
+    automation = _coerce_matrix_bucket(
+        _as_dict(cfg.get("automation")), automation_defaults
+    )
+    mode = _as_str(automation.get("mode"), "observe").strip().lower()
+    scope = _as_str(automation.get("scope"), "project").strip().lower()
+    risk_profile = _as_str(
+        automation.get("risk_profile"), "balanced"
+    ).strip().lower()
+    normalized["automation"] = {
+        "mode": mode if mode in {"observe", "review", "autopilot"} else "observe",
+        "scope": scope if scope in {"current_chat", "project"} else "project",
+        "risk_profile": (
+            risk_profile
+            if risk_profile in {"safe", "balanced", "aggressive"}
+            else "balanced"
+        ),
+        "live_refresh_seconds": _as_int(
+            automation.get("live_refresh_seconds"), 2, 1, 30
+        ),
+        "capture_system_prompts": _as_bool(
+            automation.get("capture_system_prompts"), False
+        ),
+        # The first Autopilot release deliberately has no raw-conversation
+        # mode. Preserve the field for a future separately governed feature,
+        # but normalize every value to false.
+        "include_conversation_content": False,
+        "require_replay": _as_bool(automation.get("require_replay"), True),
+        "require_canary": _as_bool(automation.get("require_canary"), True),
+        "automatic_rollback": _as_bool(
+            automation.get("automatic_rollback"), True
+        ),
+    }
+
     trace_capture_defaults = {
         "max_events_per_context": 1800,
         "max_events_per_loop": 160,
@@ -843,8 +887,43 @@ def normalize_config(config: dict[str, Any] | None) -> dict[str, Any]:
             "engine": normalized["engine"],
             "worker": normalized["worker"],
             "rlm": normalized["rlm"],
+            "automation": normalized["automation"],
         }
     )
+
+    # Automation mode is the single operator-facing switch. It may enable
+    # collection and candidate generation, but it never weakens replay,
+    # canary, calibration, activation, or rollback authorities in the v3
+    # store. Those remain independent promotion gates.
+    automation_mode = normalized["automation"]["mode"]
+    if automation_mode in {"review", "autopilot"}:
+        normalized["instrumentation_enabled"] = True
+        normalized["trace_enabled"] = True
+        normalized_opt["enabled"] = True
+        normalized_opt["auto_optimize"] = True
+        normalized_opt["enable_dspy_optimizer"] = True
+        normalized["optimization"] = normalized_opt
+        normalized["auto_optimize_enabled"] = True
+        normalized["auto_optimize"] = True
+        normalized["auto_enqueue"] = True
+        normalized["enable_dspy_optimizer"] = True
+        normalized["engine"] = "gepa"
+        normalized["rlm"]["enabled"] = True
+        normalized["prompt_optimization"]["enabled"] = True
+        if normalized["automation"]["capture_system_prompts"]:
+            normalized["prompt_optimization"]["allow_prompt_capture"] = True
+        normalized["evaluator"]["enable_replay_audit"] = True
+        normalized_opt["enable_replay_audit"] = True
+    if automation_mode == "autopilot":
+        normalized["automation"]["require_replay"] = True
+        normalized["automation"]["require_canary"] = True
+        normalized["automation"]["automatic_rollback"] = True
+        normalized_opt["auto_promote"] = True
+        normalized["optimization"] = normalized_opt
+        normalized["auto_promote"] = True
+        normalized["prompt_optimization"]["activation_mode"] = "automatic"
+        normalized["prompt_optimization"]["automatic_requires_canary"] = True
+        normalized["prompt_optimization"]["rollback"]["enabled"] = True
 
     return normalized
 

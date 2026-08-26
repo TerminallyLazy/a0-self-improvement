@@ -8,6 +8,7 @@ from typing import Any
 from helpers.extension import Extension
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
+from usr.plugins.dspy_rlm.helpers import autopilot
 from usr.plugins.dspy_rlm.helpers import paths
 from usr.plugins.dspy_rlm.helpers.v3 import runtime_composer
 from usr.plugins.dspy_rlm.helpers.v3.canary_runtime import (
@@ -65,6 +66,17 @@ class DspyRlmGuidance(Extension):
         context_id = getattr(context, "id", None)
         if type(context_id) is not str or not context_id:
             return
+
+        try:
+            autopilot.capture_system_prompt(
+                context_ref=context_id,
+                system_prompt=system_prompt,
+                config=cfg,
+            )
+        except Exception:
+            # Prompt capture is optional evidence collection and cannot affect
+            # the ordinary system prompt or active v3 profile composition.
+            pass
 
         try:
             canary_identity = _canary_identity(

@@ -6,6 +6,7 @@
     <div
       x-data="{
         selectedPreset: 'balanced',
+        selectedAutomation: 'observe',
         _ensureObject(value, fallback = {}) {
           return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : { ...fallback };
         },
@@ -18,12 +19,76 @@
           }
           return target[key];
         },
+        applyAutomation(mode) {
+          if (!['observe', 'review', 'autopilot'].includes(mode)) return;
+          if (typeof config !== 'object' || config === null) config = {};
+          const automation = this._ensureSection(config, 'automation', {
+            mode: 'observe',
+            scope: 'project',
+            risk_profile: 'balanced',
+            live_refresh_seconds: 2,
+            capture_system_prompts: false,
+            include_conversation_content: false,
+            require_replay: true,
+            require_canary: true,
+            automatic_rollback: true,
+          });
+          const optimization = this._ensureSection(config, 'optimization', {});
+          const promptOptimization = this._ensureSection(config, 'prompt_optimization', {});
+          const prompt = this._ensureSection(config, 'prompt', {});
+          const evaluator = this._ensureSection(config, 'evaluator', {});
+          const rlm = this._ensureSection(config, 'rlm', {});
+          this.selectedAutomation = mode;
+          automation.mode = mode;
+          automation.scope = automation.scope === 'current_chat' ? 'current_chat' : 'project';
+          automation.include_conversation_content = false;
+          automation.require_replay = true;
+          automation.require_canary = true;
+          automation.automatic_rollback = true;
+          if (mode === 'observe') {
+            config.auto_optimize_enabled = false;
+            optimization.auto_optimize = false;
+            optimization.auto_promote = false;
+            promptOptimization.activation_mode = 'manual';
+            return;
+          }
+          config.enabled = true;
+          config.automatic_project_genesis = true;
+          config.instrumentation_enabled = true;
+          config.trace_enabled = true;
+          config.auto_optimize_enabled = true;
+          config.enable_dspy_optimizer = true;
+          config.enable_replay_audit = true;
+          config.engine = 'gepa';
+          optimization.enabled = true;
+          optimization.auto_optimize = true;
+          optimization.enable_dspy_optimizer = true;
+          optimization.enable_replay_audit = true;
+          rlm.enabled = true;
+          evaluator.enable_replay_audit = true;
+          automation.capture_system_prompts = true;
+          promptOptimization.enabled = true;
+          promptOptimization.allow_prompt_capture = true;
+          promptOptimization.automatic_requires_canary = true;
+          promptOptimization.rollback = this._ensureObject(promptOptimization.rollback, {});
+          promptOptimization.rollback.enabled = true;
+          if (mode === 'review') {
+            optimization.auto_promote = false;
+            promptOptimization.activation_mode = 'manual';
+            return;
+          }
+          optimization.auto_promote = true;
+          prompt.inject_guidance = true;
+          promptOptimization.activation_mode = 'automatic';
+        },
         applyPreset(level) {
           if (typeof config !== 'object' || config === null) {
             config = {};
           }
 
           this.selectedPreset = level;
+          const automation = this._ensureSection(config, 'automation', {});
+          automation.risk_profile = level;
 
           const matrix = this._ensureSection(config, 'matrix', {
             version: '2.0',
@@ -309,6 +374,21 @@
           promptOptimization = { enabled: false, allow_prompt_capture: false, target_mode: 'guidance_overlay', activation_mode: 'manual', selected_components: [], rollback: {} };
           config.prompt_optimization = promptOptimization;
         }
+        let automation = ensureSection(config, 'automation', {
+          mode: 'observe',
+          scope: 'project',
+          risk_profile: 'balanced',
+          live_refresh_seconds: 2,
+          capture_system_prompts: false,
+          include_conversation_content: false,
+          require_replay: true,
+          require_canary: true,
+          automatic_rollback: true,
+        });
+        if (!automation) {
+          automation = { mode: 'observe', scope: 'project', risk_profile: 'balanced' };
+          config.automation = automation;
+        }
 
         const ensureOptimizationSection = () => {
           optimization = ensureSection(config, 'optimization', {
@@ -363,6 +443,18 @@
         config.dependencies = dependencies;
         config.rlm = rlm;
         config.prompt_optimization = promptOptimization;
+        config.automation = automation;
+        if (!['observe', 'review', 'autopilot'].includes(automation.mode)) automation.mode = 'observe';
+        if (!['current_chat', 'project'].includes(automation.scope)) automation.scope = 'project';
+        if (!['safe', 'balanced', 'aggressive'].includes(automation.risk_profile)) automation.risk_profile = 'balanced';
+        automation.live_refresh_seconds = toInt(automation.live_refresh_seconds, 2, 1, 30);
+        automation.capture_system_prompts = toBool(automation.capture_system_prompts, false);
+        automation.include_conversation_content = false;
+        automation.require_replay = true;
+        automation.require_canary = true;
+        automation.automatic_rollback = true;
+        selectedAutomation = automation.mode;
+        selectedPreset = automation.risk_profile;
         promptOptimization.enabled = toBool(promptOptimization.enabled, false);
         promptOptimization.allow_prompt_capture = toBool(promptOptimization.allow_prompt_capture, false);
         if (!['guidance_overlay', 'selected_components', 'assembled_prompt'].includes(promptOptimization.target_mode)) promptOptimization.target_mode = 'guidance_overlay';
@@ -751,6 +843,37 @@
             <button type="button" class="dspy-btn" :class="{ 'is-strong': selectedPreset === 'safe' }" @click="applyPreset('safe')">Safe</button>
             <button type="button" class="dspy-btn" :class="{ 'is-strong': selectedPreset === 'balanced' }" @click="applyPreset('balanced')">Balanced</button>
             <button type="button" class="dspy-btn" :class="{ 'is-strong': selectedPreset === 'aggressive' }" @click="applyPreset('aggressive')">Aggressive</button>
+          </section>
+
+          <section class="automation-selector">
+            <div>
+              <p class="dspy-eyebrow">Automation</p>
+              <h2>Choose how far the plugin can go</h2>
+              <p>Automation never bypasses replay, canary, calibration, activation, or rollback authority.</p>
+            </div>
+            <div class="automation-options">
+              <button type="button" class="automation-option" :class="{ 'is-selected': selectedAutomation === 'observe' }" @click="applyAutomation('observe')">
+                <strong>Observe</strong><small>Collect safe facts only.</small>
+              </button>
+              <button type="button" class="automation-option" :class="{ 'is-selected': selectedAutomation === 'review' }" @click="applyAutomation('review')">
+                <strong>Review</strong><small>Run RLM/GEPA and prepare candidates for approval.</small>
+              </button>
+              <button type="button" class="automation-option" :class="{ 'is-selected': selectedAutomation === 'autopilot' }" @click="applyAutomation('autopilot')">
+                <strong>Autopilot <span>Experimental</span></strong><small>Generate candidates automatically and expose every v3 canary, activation, and rollback blocker. This release cannot self-grant production promotion authority.</small>
+              </button>
+            </div>
+            <div class="automation-scope">
+              <label>Scope
+                <select x-model="config.automation.scope">
+                  <option value="project">Current project</option>
+                  <option value="current_chat">Current chat</option>
+                </select>
+              </label>
+              <label>Live dashboard refresh
+                <div class="automation-inline"><input type="number" min="1" max="30" x-model.number="config.automation.live_refresh_seconds" /><span>seconds</span></div>
+              </label>
+              <label class="automation-check"><input type="checkbox" x-model="config.automation.capture_system_prompts" :disabled="selectedAutomation === 'observe'" /> Capture local system-prompt snapshots</label>
+            </div>
           </section>
 
           <section class="dspy-grid">
@@ -1387,6 +1510,55 @@
       flex-wrap: wrap;
     }
 
+    .automation-selector {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding: 14px;
+      border: 1px solid rgba(112, 153, 255, 0.32);
+      border-radius: 12px;
+      background: linear-gradient(145deg, rgba(28, 57, 105, 0.42), rgba(10, 22, 43, 0.72));
+    }
+
+    .automation-selector h2,
+    .automation-selector p { margin: 0; }
+
+    .automation-selector > div:first-child > p:last-child { margin-top: 5px; color: var(--dspy-soft); font-size: 0.82rem; }
+
+    .automation-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+
+    .automation-option {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--dspy-soft-border);
+      border-radius: 10px;
+      color: var(--dspy-text);
+      background: rgba(255, 255, 255, 0.045);
+      text-align: left;
+    }
+
+    .automation-option strong,
+    .automation-option small { min-width: 0; overflow-wrap: anywhere; }
+
+    .automation-option strong span { color: #ffd286; font-size: 0.68rem; text-transform: uppercase; }
+
+    .automation-option small { color: var(--dspy-soft); }
+
+    .automation-option.is-selected { border-color: rgba(62, 209, 164, 0.72); background: rgba(62, 209, 164, 0.12); box-shadow: inset 0 0 0 1px rgba(62, 209, 164, 0.12); }
+
+    .automation-scope { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; }
+
+    .automation-scope label { display: grid; gap: 6px; min-width: 0; color: var(--dspy-soft); font-size: 0.82rem; }
+
+    .automation-scope select,
+    .automation-scope input[type='number'] { width: 100%; min-width: 0; }
+
+    .automation-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 7px; }
+
+    .automation-check { grid-template-columns: auto minmax(0, 1fr) !important; align-items: center; }
+
     .dspy-btn {
       border: 1px solid var(--dspy-soft-border);
       background: rgba(255, 255, 255, 0.06);
@@ -1583,6 +1755,8 @@
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
+      .automation-options,
+      .automation-scope { grid-template-columns: 1fr; }
     }
   </style>
   <link rel="stylesheet" href="/plugins/dspy_rlm/webui/dspy-rlm-polish.css?v=102" />

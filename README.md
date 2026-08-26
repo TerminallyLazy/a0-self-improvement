@@ -10,6 +10,7 @@ An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordi
 - Supports deterministic candidate analysis, certified fixture replay, evidence dispositions, calibrated canaries, exact-revision activation, monitoring, ancestry-safe rollback, and all-null Safety Bypass contracts.
 - Routes an occupied canary deterministically through the exact incumbent or successor profile when an explicitly provisioned assignment key matches the frozen plan, then records only content-free exposure facts after the matching loop outcome.
 - Presents six context-scoped operator views without raw prompts, tool traffic, fixture content, model reasoning, provider identifiers, filesystem paths, secrets, quarantine identities, or exception strings.
+- Adds a near-real-time automation board that refreshes while the dashboard is visible and reports project chat coverage, observations, queued work, candidates, receipts, worker health, generation gates, promotion gates, and recent content-free activity.
 - Isolates DSPy 3.3.1, GEPA, and Deno in a hash-locked worker environment. Model findings remain candidate hypotheses; workers never own activation.
 
 ## Install and use
@@ -24,7 +25,7 @@ The projection and command APIs retain Agent Zero authentication and CSRF protec
 
 ## v3 implementation boundary
 
-This repository contains the standalone v3 schemas, repositories, migration/quarantine lifecycle, work and budget authority, fixture governance, certified replay contracts, deterministic and model-route contracts, outcome-GEPA admission, canary/activation/rollback coordinators, the explicitly injected 11-stage closed-loop runner, operator projections, and signed HTTP seams. Runtime hooks append only neutral v3 observation facts with no promotion authority. The observation bridge requires an exact current-profile policy mapping, window, and evidence authority before it materializes deterministic analysis facts. Canary reduction separately requires exact exposure receipts and one authority-ranked, candidate-attributable, content-free outcome fact per exposure; exposure alone is never outcome authority. Legacy raw loop/tool capture and automatic scheduling remain inert because raw previews and configuration defaults are not v3 observation or work authority.
+This repository contains the standalone v3 schemas, repositories, migration/quarantine lifecycle, work and budget authority, fixture governance, certified replay contracts, deterministic and model-route contracts, outcome-GEPA admission, canary/activation/rollback coordinators, the explicitly injected 11-stage closed-loop runner, operator projections, and signed HTTP seams. Runtime hooks append only neutral v3 observation facts with no promotion authority. The observation bridge requires an exact current-profile policy mapping, window, and evidence authority before it materializes deterministic analysis facts. Canary reduction separately requires exact exposure receipts and one authority-ranked, candidate-attributable, content-free outcome fact per exposure; exposure alone is never outcome authority. Automatic scheduling may create compatibility candidate work, but raw previews and configuration defaults remain neither v3 observation authority nor activation authority.
 
 The fake-provider and coordinator tests prove standalone source contracts. Runtime canary observations have exposure authority only and cannot authorize promotion without separately certified, candidate-attributable Outcome Evidence and a valid conclusion. These tests do not by themselves certify a real provider, a clean pinned Agent Zero checkout, or a named Docker runtime; those are separate acceptance gates in `IMPLEMENTATION_SPEC.md`.
 
@@ -36,11 +37,21 @@ The sole worker root is DSPy 3.3.1 with the managed Deno extra; the generated lo
 
 Depfix, if evaluated, is experimental and may only act as an isolated-worker adapter over the frozen plugin store. It must use no dynamic requirements, explicitly import dependencies in each subprocess, and must never modify Agent Zero’s interpreter.
 
+## Automation modes
+
+The Settings page provides three one-switch modes. **Observe** records content-free runtime facts only. **Review** also schedules RLM/GEPA candidate work for manual review. **Autopilot** schedules the same work and continuously evaluates the certified replay, canary, rollback, calibration, policy, and production-runner gates needed for automatic activation. The public default remains Observe.
+
+Project scope is the default: every persisted chat assigned to the current Agent Zero project, including parallel-agent chats, is considered independently and summarized together on the live dashboard. Current-chat scope is available for narrower experiments. Conversation bodies, tool arguments, tool results, provider content, and error text are excluded from this automation path. Local system-prompt snapshots are captured only when the operator explicitly enables the setting.
+
+Autopilot does not manufacture its own authority. Version 2.0.9 automates safe collection and candidate scheduling, but production automatic canary/activation remains blocked because no production transition runner or production-scoped Policy Calibration Artifact ships with the plugin. The dashboard reports these as explicit blocked gates. That boundary is intentional: workers can propose changes, but they cannot promote themselves.
+
+The dashboard uses bounded two-second polling by default, pauses network reads while the browser tab is hidden, and resumes automatically. The interval is configurable from 1 to 30 seconds. Status reads are read-only and do not create stores, start workers, repair state, or initialize projects.
+
 ## Legacy compatibility settings
 
 The checked-in configuration remains readable for migration and compatibility diagnostics. Its numerical values are not v3 policy calibration, budget, replay, canary, activation, or automatic-work authority. v3 requires those facts as exact typed inputs; it does not infer them from these legacy defaults.
 
-- `optimization.auto_optimize`: retained for legacy configuration parsing; the v2 automatic scheduler hook is inert.
+- `optimization.auto_optimize`: driven by Review and Autopilot to enqueue candidate-generation work only; it grants no v3 publication, canary, activation, or promotion authority.
 - `optimization.enable_dspy_optimizer`: enables the GEPA path in a ready isolated worker.
 - `rlm.enabled`: retained for compatibility; v3 model routes additionally require exact dependency, capability, grant, transport, and budget authority and never silently fall back.
 - `rlm.model_ref` / `evaluator.preferred_dspy_model`: optional explicit DSPy model selectors used by RLM, semantic evaluation, and GEPA reflection. When both are blank, the worker checks `DSPY_RLM_MODEL`, then `DSPY_MODEL`, then derives a selector and credentials from Agent Zero's effective utility-model preset.
