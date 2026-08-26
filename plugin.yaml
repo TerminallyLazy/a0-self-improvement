@@ -1,6 +1,6 @@
 name: dspy_rlm
 title: A0 Self-Improvement
-description: Improves Agent Zero with DSPy GEPA optimization, bounded RLM analysis of execution evidence, semantic evaluation, and managed multiprocess workers.
+description: Provides authority-ranked observation, candidate, governed replay, canary, activation, monitoring, and rollback contracts for Agent Zero.
 version: 1.0.0
 always_enabled: false
 settings_sections:

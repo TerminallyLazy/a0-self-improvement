@@ -1,3 +1,2 @@
-# Isolated worker dependencies. hooks.py installs these into state/worker-venv;
-# Agent Zero's framework interpreter is never modified.
--r requirements-gepa.lock
+# Intentionally empty: Agent Zero's framework interpreter has no plugin dependencies.
+# hooks.py installs requirements-gepa.lock only into the isolated worker environment.

@@ -1,0 +1,21 @@
+---
+status: accepted
+---
+
+# Isolate provider-backed replay behind a certified adapter
+
+A0 Self-Improvement will execute each arm of a Replay Pair Attempt in a fresh, killable plugin-owned worker built from one frozen Replay Invocation Snapshot, rather than drive Agent Zero's normal monologue or tool lifecycle in the live process. Promotion-authoritative replay requires a Replay Capability Certificate for the exact Agent Zero build and replay-adapter version plus a passing behavioral probe. This trades simple reuse of Agent Zero's mutable loop for no-live-tool isolation, explicit transport semantics, privacy, and comparable paired evidence.
+
+## Consequences
+
+- A Pair Orchestrator gives incumbent and candidate arms identical admitted case content, incumbent profile, fixture-backed environment, execution and assessment identities, and Replay Execution Budget; only the candidate's authorized Artifact Slot differs. Each arm receives fresh history, loop, continuation, extension, and process-global state, and arm order alternates deterministically.
+- A replay worker may use certified Agent Zero prompt and model seams but never calls `Agent.monologue()`, `process_llm_result_tools()`, `_execute_tool_request()`, `process_tools()`, `get_tool()`, MCP dispatch, provider-hosted tools, or any Tool lifecycle method.
+- Prompt assembly runs only with an exact ordered inventory of deterministic, fixture-backed, side-effect-free extensions. Time, project/workdir, memory, browser, desktop, editor, office, MCP, secrets, goals, and other behavior-affecting inputs are frozen or supplied through admitted initial state. Unknown, reordered, live, or unfixtureable extensions make replay non-authoritative rather than being silently omitted.
+- The resolved model configuration and transport mode are exact Execution Profile inputs. Responses replay uses local continuation with provider storage disabled and locally owned call-ID-linked function output items. Silent Responses/Chat fallback, provider/local state drift, built-in-tool downgrade, or removal of behavior-affecting model parameters invalidates comparison.
+- The provider request is replay's only permitted external effect and must fit the Fixture Use Grant's processing boundary. The provider sees only the terminal response contract and fixture-declared inert function schemas; local-only content cannot be sent to an external provider.
+- Replay owns the transport-specific completion protocol. Responses plain output is normalized through the response contract; Chat plain or malformed output follows bounded repair. Ordered multi-call batches match consecutive Tool Fixture Steps atomically, and a terminal response must be the only call in its batch.
+- Only the pinned transport policy may retry a classified transient failure before any output. Partial-output execution is never retried or resumed. A whole-pair retry creates a new attempt with fresh state for both arms. Numerical retry and execution-budget defaults remain policy authority.
+- Replay returns a typed Replay Arm Outcome of completed, deterministic failure, availability failure, cancelled, or harness failure. The adapter does not reduce paired outcomes into an Activation Disposition; infrastructure, capability, or cleanup failures cannot become negative candidate evidence.
+- Cancellation and timeouts terminate the worker after bounded cooperative cleanup. Cleanup uncertainty invalidates the attempt. Durable state is limited to a content-free Replay Execution Receipt; raw prompts, responses, reasoning, arguments, fixture payloads, provider response IDs, credentials, and exception text remain transient.
+- Certification initially targets clean Agent Zero build `b22a144bf59f15b1516084c9e7b88133ba92c8a9`. Unknown or dirty builds may support diagnostics but remain review-only until an explicit build/capability-fingerprint and adapter-version matrix entry passes structural and behavioral probes.
+- Standalone fake-provider contracts, clean pinned-framework certification, authorized real-provider certification, and exact named live-runtime acceptance are separate gates. Only Replay Capability State `ready` can contribute promotion-authoritative replay evidence.

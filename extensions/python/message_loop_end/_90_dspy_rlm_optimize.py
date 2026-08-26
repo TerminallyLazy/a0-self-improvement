@@ -1,68 +1,112 @@
+"""Persist one content-free v3 fact at Agent Zero's message-loop-end seam."""
 from __future__ import annotations
 
-import asyncio
+from datetime import datetime, timezone
+import os
+from typing import Any
 
-from agent import LoopData
 from helpers.extension import Extension
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
-from usr.plugins.dspy_rlm.helpers import state, trace as trace_helper
-from usr.plugins.dspy_rlm.helpers.runtime_policy import RuntimePolicy
-from usr.plugins.dspy_rlm.helpers import _scheduler_coordinator as scheduler
-from usr.plugins.dspy_rlm.helpers import prompt_artifacts
+from usr.plugins.dspy_rlm.helpers import paths
+from usr.plugins.dspy_rlm.helpers.v3.canary_runtime import (
+    CANARY_ASSIGNMENT_KEY_ENV,
+    CANARY_SELECTION_LOOP_KEY,
+    CanaryRuntimeSelection,
+    commit_canary_runtime_observation,
+    exposure_identity,
+)
+from usr.plugins.dspy_rlm.helpers.v3.observation import (
+    RuntimeObservationRequest,
+    record_runtime_observation,
+)
+from usr.plugins.dspy_rlm.helpers.v3.store_selection import open_runtime_repository
+
+
+def _log_ref(value: object) -> str | None:
+    ref = getattr(value, "id", None)
+    return ref if type(ref) is str else None
+
+
+def _assignment_secret() -> bytes | None:
+    value = os.environ.get(CANARY_ASSIGNMENT_KEY_ENV)
+    return value.encode("utf-8") if type(value) is str and value else None
+
+
+def _ordinary_context(agent: object) -> tuple[object, str] | None:
+    context = getattr(agent, "context", None)
+    get_data = getattr(context, "get_data", None)
+    context_ref = getattr(context, "id", None)
+    if context is None or not callable(get_data) or type(context_ref) is not str:
+        return None
+    if bool(get_data("dspy_rlm_offline_replay", recursive=False)):
+        return None
+    return context, context_ref
 
 
 class DspyRlmOptimizationScheduler(Extension):
-    async def execute(self, loop_data: LoopData = LoopData(), **kwargs):
-        if not self.agent:
-            return
+    """Retained name; records facts only and never schedules optimization."""
 
-        cfg = config_module.load_config(self.agent)
-        policy = RuntimePolicy.from_config(cfg)
-
-        context_id = self.agent.context.id
-        user_message = getattr(loop_data, "user_message", None)
-        objective = ""
-        if user_message is not None and hasattr(user_message, "content"):
-            objective = str(user_message.content)
-        response_text = str(getattr(loop_data, "last_response", "") or "")
-        iteration = int(getattr(loop_data, "iteration", -1))
-
-        # Observation and automatic scheduling are distinct capabilities.  Do
-        # not let a disabled telemetry gate silently disable an explicitly
-        # enabled enqueue path.
-        if policy.can_capture():
-            state.record_loop_attempt(
-                context_id=context_id,
-                objective=objective,
-                response_preview=response_text,
-                iteration=iteration,
-            )
-            trace_helper.record_loop_event(
-                context_id=context_id,
-                agent_name=self.agent.agent_name,
-                objective=objective,
+    async def execute(self, loop_data: Any = None, **kwargs: Any) -> None:
+        try:
+            agent = getattr(self, "agent", None)
+            ordinary = _ordinary_context(agent)
+            if ordinary is None:
+                return
+            _, context_ref = ordinary
+            cfg = config_module.load_config(agent)
+            if not isinstance(cfg, dict) or cfg.get("enabled") is not True:
+                return
+            iteration = getattr(loop_data, "iteration", None)
+            params = getattr(loop_data, "params_temporary", None)
+            if type(iteration) is not int or iteration < 0 or type(params) is not dict:
+                return
+            occurrence_ref = _log_ref(params.get("log_item_generating"))
+            if occurrence_ref is None:
+                return
+            request = RuntimeObservationRequest(
+                context_ref=context_ref,
+                occurrence_ref=occurrence_ref,
+                observation_kind="message_loop_end",
+                outcome_code="message_loop_end_observed",
                 loop_iteration=iteration,
-                response_text=response_text,
             )
-            applied_prompt_artifact = str(state.load_context_state(context_id).get("prompt_artifact_applied") or "")
-            if applied_prompt_artifact:
-                prompt_artifacts.record_observation(
-                    context_id, applied_prompt_artifact, success=bool(response_text.strip()), cfg=cfg
-                )
-
-        if not policy.can_enqueue():
+            with open_runtime_repository(
+                pre_cutover_path=paths.SAFE_STORE_FILE,
+                manifest_path=paths.STORE_AUTHORITY_MANIFEST_FILE,
+            ) as repository:
+                selection = params.get(CANARY_SELECTION_LOOP_KEY)
+                secret = _assignment_secret()
+                if type(selection) is CanaryRuntimeSelection and secret is not None:
+                    message_ref = getattr(getattr(loop_data, "user_message", None), "id", None)
+                    identity = (
+                        exposure_identity(
+                            context_ref=context_ref,
+                            message_ref=message_ref,
+                            loop_iteration=iteration,
+                        )
+                        if type(message_ref) is str
+                        else None
+                    )
+                    if (
+                        identity is not None
+                        and identity.exposure_unit_ref == selection.exposure_unit_ref
+                        and identity.envelope_ref == selection.envelope_ref
+                    ):
+                        try:
+                            commit_canary_runtime_observation(
+                                repository,
+                                selection=selection,
+                                outcome_request=request,
+                                assignment_secret=secret,
+                                now=datetime.now(timezone.utc),
+                            )
+                            return
+                        except Exception:
+                            pass
+                record_runtime_observation(repository, request)
+        except Exception:
+            # Observation is optional to ordinary Agent Zero behavior. Missing,
+            # stale, corrupt, or unsupported authority must remain inert and no
+            # content or exception detail may enter another sink here.
             return
-
-        if not state.should_auto_optimize(context_id, cfg.get("optimization_interval_messages", 12)):
-            return
-
-        context_state = state.load_context_state(context_id)
-        if context_state.get("optimization_running"):
-            return
-
-        # Queue optimization in the coordinator to avoid blocking message flow.
-        queued = scheduler.schedule_optimization_job(context_id=context_id, cfg=cfg, force=False)
-        if queued.get("dispatched", False):
-            from usr.plugins.dspy_rlm.helpers.worker_supervisor import reconcile
-            await asyncio.to_thread(reconcile, cfg)

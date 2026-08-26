@@ -32,11 +32,8 @@ def save_plugin_config(settings: dict[str, Any] | None = None, **_kwargs: Any) -
     normalized = _safe_normalize_config(settings, "save_plugin_config")
     if settings is not None and not isinstance(settings, dict):
         PrintStyle.error(f"{PLUGIN_NAME}: save_plugin_config received non-dict settings; persisted fallback used")
-    try:
-        from usr.plugins.dspy_rlm.helpers.worker_supervisor import reconcile
-        reconcile(normalized)
-    except Exception as exc:
-        PrintStyle.error(f"{PLUGIN_NAME}: worker reconciliation failed: {exc}")
+    # Configuration is not work authority. v3 workers start only through the
+    # explicit Work Coordinator/Supervisor path, never as a save side effect.
     return normalized
 
 
@@ -69,13 +66,7 @@ def dependency_report() -> dict[str, Any]:
 
 def install() -> dict[str, Any]:
     """Install pinned dependencies into the isolated worker environment."""
-    result = dependencies.install_worker_environment()
-    try:
-        from usr.plugins.dspy_rlm.helpers.worker_supervisor import reconcile
-        result["workers"] = reconcile(config_module.load_config())
-    except Exception as exc:
-        result["workers"] = {"reason": f"reconciliation_failed:{type(exc).__name__}"}
-    return result
+    return dependencies.install_worker_environment()
 
 
 def pre_update() -> dict[str, Any]:

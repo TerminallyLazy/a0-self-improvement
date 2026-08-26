@@ -1,6 +1,7 @@
 """Focused Phase 0 runtime-boundary regression tests."""
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -62,16 +63,24 @@ async def test_optimize_api_force_cannot_bypass_disabled_capability(
     monkeypatch.setattr(
         config_module,
         "load_config",
-        lambda *args, **kwargs: _enabled_config(enabled=False),
+        lambda *args, **kwargs: pytest.fail("retired route inspected configuration"),
     )
-    from usr.plugins.dspy_rlm.api import status as status_module
-    monkeypatch.setattr(status_module.AgentContext, "get", lambda _context_id: SimpleNamespace(id="ctx-1", agent0=object()))
 
     handler = object.__new__(Optimize)
     result = await handler.process({"context_id": "ctx-1", "force": True}, None)
 
-    assert result["ok"] is False
-    assert result["result"]["reason"] == "optimization_disabled"
+    assert result.status == 410
+    assert json.loads(result.response) == {
+        "schema": "a0.legacy-mutation-retired.v1",
+        "accepted": False,
+        "legacy_route": "optimize",
+        "state": "retired",
+        "reason_codes": ["signed_v3_operator_command_required"],
+        "operator_command": {
+            "route": "/plugins/dspy_rlm/operator_command",
+            "action": "optimize",
+        },
+    }
 
 
 def test_telemetry_uses_a_context_data_mapping() -> None:

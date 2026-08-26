@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -12,7 +13,7 @@ from typing import Any
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENTS = PLUGIN_ROOT / "requirements.txt"
+FRAMEWORK_REQUIREMENTS = PLUGIN_ROOT / "requirements.txt"
 LOCK_MANIFEST = PLUGIN_ROOT / "requirements-gepa.lock"
 STATE_DIR = PLUGIN_ROOT / "state"
 
@@ -28,6 +29,7 @@ def _worker_venv_path() -> Path:
 
 WORKER_VENV = _worker_venv_path()
 WORKER_PYTHON = WORKER_VENV / "bin" / "python"
+WORKER_PYVENV_CONFIG = WORKER_VENV / "pyvenv.cfg"
 WORKER_SITE_PACKAGES = (
     WORKER_VENV / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
 )
@@ -35,14 +37,35 @@ FRAMEWORK_BRIDGE = WORKER_SITE_PACKAGES / "agent_zero_framework.pth"
 INSTALLER_LOCK = STATE_DIR / "worker-env-install.lock"
 INSTALL_LOG = STATE_DIR / "worker-env-install.log"
 INSTALL_MARKER = STATE_DIR / "worker-env.json"
-EXPECTED = {"dspy": "3.3.1", "gepa": "0.1.4", "dspy-cli": "0.1.13"}
+EXPECTED = {"dspy": "3.3.1", "gepa": "0.1.4", "deno": "2.9.5"}
 
 
 def locked_requirements() -> list[str]:
     if not LOCK_MANIFEST.is_file():
         return []
-    return [line.strip() for line in LOCK_MANIFEST.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")]
+    return [
+        line.removesuffix(" \\").strip()
+        for line in LOCK_MANIFEST.read_text(encoding="utf-8").splitlines()
+        if line and not line[0].isspace() and not line.startswith("#")
+    ]
+
+
+def lock_sha256() -> str:
+    if not LOCK_MANIFEST.is_file():
+        return ""
+    return hashlib.sha256(LOCK_MANIFEST.read_bytes()).hexdigest()
+
+
+def lock_hash_complete() -> bool:
+    if not LOCK_MANIFEST.is_file():
+        return False
+    blocks: list[list[str]] = []
+    for line in LOCK_MANIFEST.read_text(encoding="utf-8").splitlines():
+        if line and not line[0].isspace() and not line.startswith("#"):
+            blocks.append([line])
+        elif blocks:
+            blocks[-1].append(line)
+    return bool(blocks) and all(any("--hash=sha256:" in line for line in block) for block in blocks)
 
 
 def _read_marker() -> dict[str, Any]:
@@ -53,25 +76,59 @@ def _read_marker() -> dict[str, Any]:
         return {}
 
 
+def _venv_isolated() -> bool:
+    try:
+        entries = {
+            key.strip().lower(): value.strip().lower()
+            for line in WORKER_PYVENV_CONFIG.read_text(encoding="utf-8").splitlines()
+            if "=" in line
+            for key, value in (line.split("=", 1),)
+        }
+    except OSError:
+        return False
+    return entries.get("include-system-site-packages") == "false"
+
+
+def _framework_bridge_is_narrow() -> bool:
+    try:
+        lines = [line for line in FRAMEWORK_BRIDGE.read_text(encoding="utf-8").splitlines() if line]
+    except OSError:
+        return False
+    if len(lines) != 1:
+        return False
+    candidate = Path(lines[0])
+    return bool(
+        candidate.is_absolute()
+        and (candidate / "agent.py").is_file()
+        and (candidate / "helpers" / "print_style.py").is_file()
+        and (candidate / "usr").is_dir()
+    )
+
+
 def dependency_diagnostics() -> dict[str, Any]:
     requirements = locked_requirements()
     marker = _read_marker()
     versions = marker.get("versions") if isinstance(marker.get("versions"), dict) else {}
-    ready = bool(WORKER_PYTHON.is_file() and FRAMEWORK_BRIDGE.is_file() and marker.get("ready") is True
+    ready = bool(WORKER_PYTHON.is_file() and _venv_isolated() and _framework_bridge_is_narrow()
+                 and marker.get("ready") is True
+                 and marker.get("lock_sha256") == lock_sha256() and lock_hash_complete()
                  and all(str(versions.get(name)) == version for name, version in EXPECTED.items()))
     return {
         "lock_manifest": str(LOCK_MANIFEST), "exact_requirements": requirements,
         "installed": list(requirements) if ready else [], "missing": [] if ready else list(requirements),
-        "hash_complete": True, "diagnostics": [] if ready else ["isolated_worker_environment_not_ready"],
+        "hash_complete": lock_hash_complete(),
+        "lock_sha256": lock_sha256(),
+        "diagnostics": [] if ready else ["isolated_worker_environment_not_ready"],
         "ready": ready, "worker_python": str(WORKER_PYTHON), "versions": versions,
+        "inherits_system_site_packages": not _venv_isolated(),
     }
 
 
 def manual_setup_plan() -> dict[str, Any]:
     uv = shutil.which("uv") or "uv"
     commands = [
-        f"{sys.executable} -m venv --system-site-packages {WORKER_VENV}",
-        f"{uv} pip install --python {WORKER_PYTHON} -r {REQUIREMENTS}",
+        f"{sys.executable} -m venv {WORKER_VENV}",
+        f"{uv} pip install --require-hashes --python {WORKER_PYTHON} -r {LOCK_MANIFEST}",
         f"{WORKER_PYTHON} -c 'import dspy, gepa; assert hasattr(dspy, \"RLM\"); assert hasattr(dspy, \"GEPA\")'",
     ]
     return {
@@ -79,7 +136,8 @@ def manual_setup_plan() -> dict[str, Any]:
         "execution_performed": False, "lock_manifest": str(LOCK_MANIFEST),
         "exact_requirements": locked_requirements(), "isolated_worker_venv": str(WORKER_VENV),
         "installer_lock": str(INSTALLER_LOCK), "timeout_seconds": 115,
-        "trusted_index_required": False, "hashes_required": False, "log_path": str(INSTALL_LOG),
+        "trusted_index_required": False, "hashes_required": True, "log_path": str(INSTALL_LOG),
+        "inherits_system_site_packages": False,
         "commands_for_operator_review": commands, "blockers": [] if shutil.which("uv") else ["uv_not_available"],
     }
 
@@ -99,19 +157,21 @@ def _acquire_lock() -> int:
 
 
 def _write_framework_bridge() -> None:
-    framework_paths = []
-    worker_root = WORKER_VENV.resolve()
+    framework_roots: list[str] = []
     for raw_path in sys.path:
         candidate = Path(raw_path or ".").resolve()
-        if "site-packages" not in candidate.parts or not candidate.is_dir():
+        if not candidate.is_dir() or candidate == PLUGIN_ROOT:
             continue
-        if candidate == worker_root or worker_root in candidate.parents:
-            continue
-        framework_paths.append(str(candidate))
-    if not framework_paths:
-        raise RuntimeError("Agent Zero framework site-packages could not be located")
+        if (
+            (candidate / "agent.py").is_file()
+            and (candidate / "helpers" / "print_style.py").is_file()
+            and (candidate / "usr").is_dir()
+        ):
+            framework_roots.append(str(candidate))
+    if len(set(framework_roots)) != 1:
+        raise RuntimeError("one exact Agent Zero framework source root is required")
     WORKER_SITE_PACKAGES.mkdir(parents=True, exist_ok=True)
-    FRAMEWORK_BRIDGE.write_text("\n".join(dict.fromkeys(framework_paths)) + "\n", encoding="utf-8")
+    FRAMEWORK_BRIDGE.write_text(framework_roots[0] + "\n", encoding="utf-8")
 
 
 def install_worker_environment(timeout_seconds: int = 115) -> dict[str, Any]:
@@ -125,10 +185,11 @@ def install_worker_environment(timeout_seconds: int = 115) -> dict[str, Any]:
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         with INSTALL_LOG.open("a", encoding="utf-8") as log:
-            subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(WORKER_VENV)],
+            subprocess.run([sys.executable, "-m", "venv", str(WORKER_VENV)],
                            check=True, stdout=log, stderr=subprocess.STDOUT, timeout=timeout_seconds)
             _write_framework_bridge()
-            subprocess.run([uv, "pip", "install", "--python", str(WORKER_PYTHON), "-r", str(REQUIREMENTS)],
+            subprocess.run([uv, "pip", "install", "--require-hashes", "--python", str(WORKER_PYTHON),
+                            "-r", str(LOCK_MANIFEST)],
                            check=True, cwd=str(PLUGIN_ROOT), stdout=log, stderr=subprocess.STDOUT,
                            timeout=timeout_seconds)
             probe = (
@@ -136,12 +197,13 @@ def install_worker_environment(timeout_seconds: int = 115) -> dict[str, Any]:
                 "from helpers.print_style import PrintStyle; "
                 "assert hasattr(dspy, 'RLM') and hasattr(dspy, 'GEPA'); "
                 "print(json.dumps({'dspy': m.version('dspy'), 'gepa': m.version('gepa'), "
-                "'dspy-cli': m.version('dspy-cli')}))"
+                "'deno': m.version('deno')}))"
             )
             result = subprocess.run([str(WORKER_PYTHON), "-c", probe], check=True, capture_output=True,
                                     text=True, timeout=timeout_seconds)
         versions = json.loads(result.stdout.strip().splitlines()[-1])
-        INSTALL_MARKER.write_text(json.dumps({"ready": True, "versions": versions, "installed_at": time.time()},
+        INSTALL_MARKER.write_text(json.dumps({"ready": True, "versions": versions,
+                                              "lock_sha256": lock_sha256(), "installed_at": time.time()},
                                              sort_keys=True), encoding="utf-8")
         diagnostics = dependency_diagnostics()
         if not diagnostics["ready"]:
@@ -150,4 +212,3 @@ def install_worker_environment(timeout_seconds: int = 115) -> dict[str, Any]:
     finally:
         os.close(lock_fd)
         INSTALLER_LOCK.unlink(missing_ok=True)
-

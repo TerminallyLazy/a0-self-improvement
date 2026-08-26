@@ -1,20 +1,25 @@
 """Context-scoped, redacted status for the DSPy RLM plugin."""
 from __future__ import annotations
 
-import asyncio
 import math
 from collections import Counter
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 from agent import AgentContext
 from helpers.api import ApiHandler, Request, Response
 from helpers.print_style import PrintStyle
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
+from usr.plugins.dspy_rlm.helpers import paths as plugin_paths
 from usr.plugins.dspy_rlm.helpers.model_resolution import resolve_dspy_model
 from usr.plugins.dspy_rlm.helpers.runtime_policy import RuntimePolicy
+from usr.plugins.dspy_rlm.helpers.v3.public_projection import (
+    project_public_status,
+    unavailable_public_status,
+)
+from usr.plugins.dspy_rlm.helpers.v3.repository import StoreNotFoundError
+from usr.plugins.dspy_rlm.helpers.v3.store_selection import open_runtime_reader
 
-STATUS_TIMEOUT_SECONDS = 2.0
 _PUBLIC_BUCKETS = frozenset({"shell", "tool_retrieval", "reasoning", "decision_making"})
 _PUBLIC_JOB_STATUSES = frozenset({"pending", "queued", "running", "candidate", "promoted", "rejected", "succeeded", "failed", "cancelled"})
 _PUBLIC_OPTIMIZATION_STATUSES = _PUBLIC_JOB_STATUSES | frozenset({"idle", "skipped", "unknown"})
@@ -34,7 +39,7 @@ def error_response(status: int, message: str) -> Response:
     return Response(status=status, response=message, mimetype="text/plain")
 
 
-def resolve_context_config(input: Mapping[str, Any]) -> tuple[Any | None, dict[str, Any] | None, Response | None]:
+def resolve_live_context(input: Mapping[str, Any]) -> tuple[Any | None, Response | None]:
     """Resolve an already-live Agent Zero context without creating one.
 
     Plugin APIs are context scoped. ``AgentContext.get`` is intentionally used
@@ -43,10 +48,19 @@ def resolve_context_config(input: Mapping[str, Any]) -> tuple[Any | None, dict[s
     """
     context_id = str(input.get("context_id", "") or "").strip()
     if not context_id:
-        return None, None, error_response(400, "context_id is required")
+        return None, error_response(400, "context_id is required")
     context = AgentContext.get(context_id)
     if context is None:
-        return None, None, error_response(404, "context not found")
+        return None, error_response(404, "context not found")
+    return context, None
+
+
+def resolve_context_config(input: Mapping[str, Any]) -> tuple[Any | None, dict[str, Any] | None, Response | None]:
+    """Resolve a live context and require the legacy API enablement gate."""
+    context, error = resolve_live_context(input)
+    if error:
+        return None, None, error
+    assert context is not None
     agent = getattr(context, "agent0", None) or context
     cfg = config_module.load_config(agent=agent)
     if not RuntimePolicy.from_config(cfg).enabled:
@@ -253,74 +267,33 @@ def public_scheduler(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-async def safe_eval(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
-    try:
-        return await asyncio.wait_for(asyncio.to_thread(fn), timeout=STATUS_TIMEOUT_SECONDS)
-    except Exception as exc:
-        PrintStyle.error(f"dspy_rlm status: {label} unavailable: {exc}")
-        return fallback
-
-
 class Status(ApiHandler):
     async def process(self, input: dict, request: Request) -> dict | Response:
-        context, cfg, error = resolve_context_config(input)
+        context, error = resolve_live_context(input)
         if error:
             return error
-        assert context is not None and cfg is not None
+        assert context is not None
 
-        from usr.plugins.dspy_rlm.helpers import dependencies
-        from usr.plugins.dspy_rlm.helpers import _scheduler_coordinator as scheduler
-        from usr.plugins.dspy_rlm.helpers import state, trace
-        from usr.plugins.dspy_rlm.helpers import worker_supervisor
-        from usr.plugins.dspy_rlm.helpers import prompt_artifacts
-
-        context_id = str(context.id)
-        supervisor = await safe_eval("worker_supervisor.snapshot", lambda: worker_supervisor.snapshot(cfg), {})
-        scheduler_snapshot, context_state, trace_summary, recent_jobs, metrics, active_guidance, prompt_status = await asyncio.gather(
-            safe_eval("scheduler.status", lambda: scheduler.scheduler_status(cfg=cfg), {}),
-            safe_eval("state.load_context_state", lambda: state.load_context_state(context_id), {}),
-            safe_eval("trace.summarize_context", lambda: trace.summarize_context(context_id, limit=_nonnegative_int(cfg.get("optimization_trace_window", 200), 200)), {}),
-            safe_eval("state.get_recent_jobs", lambda: state.get_recent_jobs(context_id=context_id, limit=10), []),
-            safe_eval("state.aggregate_metrics", lambda: state.aggregate_metrics(context_id), {}),
-            safe_eval(
-                "state.get_active_guidance",
-                lambda: {
-                    bucket: state._store_for_root().get_active_guidance(context_id, bucket)
-                    for bucket in sorted(_PUBLIC_BUCKETS)
-                },
-                {},
-            ),
-            safe_eval("prompt_artifacts.public_status", lambda: prompt_artifacts.public_status(context_id), {}),
-        )
-        diagnostics = dependencies.dependency_diagnostics()
-        return {
-            "plugin": "dspy_rlm",
-            "enabled": True,
-            "context_id": context_id,
-            "config": public_config(cfg),
-            "scheduler": public_scheduler(scheduler_snapshot if isinstance(scheduler_snapshot, Mapping) else {}),
-            "worker_supervisor": {
-                "desired": _nonnegative_int(supervisor.get("desired")) if isinstance(supervisor, Mapping) else 0,
-                "running": _nonnegative_int(supervisor.get("running")) if isinstance(supervisor, Mapping) else 0,
-                "reason": str(supervisor.get("reason") or "unknown") if isinstance(supervisor, Mapping) else "unknown",
-            },
-            # These names are the stable WebUI contract. No diagnostic paths,
-            # package-index URLs, import errors, or host environment details leave
-            # the process through the status endpoint.
-            "dependencies": {
-                "gepa_worker_ready": bool(diagnostics.get("ready", False)),
-                "lock_manifest": "requirements-gepa.lock",
-                "missing_count": _nonnegative_int(len(diagnostics.get("missing", []))),
-                "hash_complete": bool(diagnostics.get("hash_complete", False)),
-                "setup_mode": "isolated_worker_venv",
-            },
-            "context_state": public_context_state(context_state if isinstance(context_state, Mapping) else {}),
-            "active_guidance": {
-                bucket: public_active_guidance(active)
-                for bucket, active in (active_guidance.items() if isinstance(active_guidance, Mapping) else ())
-            },
-            "trace_summary": public_trace_summary(trace_summary if isinstance(trace_summary, Mapping) else {}),
-            "recent_jobs": [public_job(job) for job in recent_jobs[:10] if isinstance(job, Mapping)],
-            "context_samples": public_context_samples(metrics if isinstance(metrics, Mapping) else {}),
-            "prompt_optimization": prompt_status if isinstance(prompt_status, Mapping) else {},
-        }
+        agent = getattr(context, "agent0", None) or context
+        cfg = config_module.load_config(agent=agent)
+        enabled = RuntimePolicy.from_config(cfg).enabled
+        context_ref = str(context.id)
+        try:
+            with open_runtime_reader(
+                pre_cutover_path=plugin_paths.SAFE_STORE_FILE,
+                manifest_path=plugin_paths.STORE_AUTHORITY_MANIFEST_FILE,
+            ) as reader:
+                return project_public_status(
+                    context_ref=context_ref, enabled=enabled, reader=reader
+                )
+        except StoreNotFoundError:
+            return unavailable_public_status(
+                context_ref=context_ref, enabled=enabled
+            )
+        except Exception:
+            # The public boundary exposes one allowlisted condition only.  Store
+            # paths, SQLite messages, record content, and exception text stay local.
+            PrintStyle.error("dspy_rlm status: safe store is unreadable")
+            return unavailable_public_status(
+                context_ref=context_ref, enabled=enabled, blocked=True
+            )

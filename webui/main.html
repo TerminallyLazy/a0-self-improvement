@@ -2,564 +2,422 @@
   <head>
     <title>A0 Self-Improvement</title>
     <script type="module">
-    import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=102";
+      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=300";
     </script>
   </head>
   <body>
-    <div x-data x-init="$store.dspyRlm.initRuntime()" x-destroy="$store.dspyRlm.stopAutoRefresh()">
-      <template x-if="!$store.dspyRlm.statusLoaded">
-        <div class="plugin-page-loading">
-          <div class="loading-orbit" aria-hidden="true"></div>
-          <p class="loading-title">Reading the learning system</p>
-          <p class="loading-copy">Resolving context, workers, evidence, and optimization state.</p>
-          <template x-if="$store.dspyRlm.lastError">
-            <div class="plugin-error" x-text="$store.dspyRlm.lastError"></div>
-          </template>
-          <div class="loading-actions">
-            <button class="btn btn-field" @click="$store.dspyRlm.refreshStatus({force:true})">
-              Retry
-            </button>
-            <button class="btn btn-field" @click="$store.dspyRlm.openConfig()">
-              Open settings
-            </button>
+    <main class="operator-shell" x-data x-init="$store.dspyRlm.initRuntime()">
+      <header class="operator-header">
+        <div>
+          <p class="eyebrow">A0 self-improvement</p>
+          <h1>Operator console</h1>
+          <p class="deck">Authority-ranked, content-free state for the selected context.</p>
+        </div>
+        <button class="button" @click="$store.dspyRlm.refreshAll()" :disabled="$store.dspyRlm.loading">
+          <span x-text="$store.dspyRlm.loading ? 'Reading…' : 'Refresh receipts'">Refresh receipts</span>
+        </button>
+      </header>
+
+      <section class="context-band">
+        <label>
+          <span>Context</span>
+          <input
+            :value="$store.dspyRlm.contextId"
+            @change="$store.dspyRlm.setContextId($event)"
+            placeholder="Select a context"
+            autocomplete="off"
+          />
+        </label>
+        <div class="notice" x-show="$store.dspyRlm.lastErrorCode">
+          <strong>Unavailable</strong>
+          <span x-text="$store.dspyRlm.lastErrorCode"></span>
+        </div>
+      </section>
+
+      <nav class="view-tabs" aria-label="Operator views">
+        <template x-for="tab in $store.dspyRlm.viewTabs" :key="tab.id">
+          <button
+            class="view-tab"
+            :class="{ 'is-active': $store.dspyRlm.activeView === tab.id }"
+            @click="$store.dspyRlm.setActiveView(tab.id)"
+            x-text="tab.label"
+          ></button>
+        </template>
+      </nav>
+
+      <div class="loading" x-show="!$store.dspyRlm.loaded">
+        <span class="loading-dot" aria-hidden="true"></span>
+        Reading exact operator projections
+      </div>
+
+      <section class="view" x-show="$store.dspyRlm.activeView === 'overview'">
+        <div class="view-heading">
+          <div>
+            <p class="eyebrow">Continuity and authority</p>
+            <h2>Overview</h2>
           </div>
         </div>
-      </template>
 
-      <template x-if="$store.dspyRlm.statusLoaded">
-        <section class="dspy-rlm-shell">
-          <header class="dspy-rlm-header">
-            <div class="brand-lockup">
-              <div class="brand-mark" aria-hidden="true">
-                <img src="/plugins/dspy_rlm/webui/thumbnail.png" alt="" />
-              </div>
-              <div>
-                <p class="kicker">Agent Zero learning system</p>
-                <h1>A0 <span>Self-Improvement</span></h1>
-                <p class="header-deck">DSPy GEPA optimization and bounded RLM evidence analysis for this context.</p>
-              </div>
-            </div>
-            <div class="header-actions">
-              <button class="btn btn-field" @click="$store.dspyRlm.refreshStatus({ force: true })" :disabled="$store.dspyRlm.loading">
-                <span x-text="$store.dspyRlm.loading ? 'Syncing...' : 'Sync status'"></span>
-              </button>
-              <button class="btn btn-field is-primary" @click="$store.dspyRlm.openConfig()">Configure</button>
-            </div>
-          </header>
+        <div class="axis-grid">
+          <article class="axis-card">
+            <span>Ordinary runtime</span>
+            <strong :class="$store.dspyRlm.axisClass($store.dspyRlm.overview.ordinary_runtime)" x-text="$store.dspyRlm.overview.ordinary_runtime.state"></strong>
+            <small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.overview.ordinary_runtime.reason_codes)"></small>
+          </article>
+          <article class="axis-card">
+            <span>Improvement</span>
+            <strong :class="$store.dspyRlm.axisClass($store.dspyRlm.overview.improvement)" x-text="$store.dspyRlm.overview.improvement.state"></strong>
+            <small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.overview.improvement.reason_codes)"></small>
+          </article>
+          <article class="axis-card">
+            <span>Migration / cutover</span>
+            <strong :class="$store.dspyRlm.axisClass($store.dspyRlm.overview.migration_cutover)" x-text="$store.dspyRlm.overview.migration_cutover.state"></strong>
+            <small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.overview.migration_cutover.reason_codes)"></small>
+          </article>
+          <article class="axis-card">
+            <span>Activation</span>
+            <strong :class="$store.dspyRlm.axisClass($store.dspyRlm.overview.activation)" x-text="$store.dspyRlm.overview.activation.state"></strong>
+            <small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.overview.activation.reason_codes)"></small>
+          </article>
+        </div>
 
-          <section class="status-band">
-            <label class="context-control">
-              <span>Context</span>
-              <input
-                x-model="$store.dspyRlm.contextId"
-                placeholder="Current context id"
-                @change="$store.dspyRlm.setContextId()"
-              />
-            </label>
-            <div class="badge-strip">
-              <span class="status-badge" :class="$store.dspyRlm.optimizationClass" x-text="$store.dspyRlm.optimizationStatus"></span>
-              <span class="status-badge" :class="$store.dspyRlm.dependencyStateClass" x-text="$store.dspyRlm.dependenciesLabel"></span>
-              <span class="status-badge is-muted" x-text="$store.dspyRlm.objectiveModeLabel"></span>
-            </div>
-          </section>
-
-          <section class="dspy-rlm-grid">
-            <div class="dashboard-column dashboard-column--primary">
-            <article class="panel">
-              <h2>Improvement cycle</h2>
-              <div class="metric-grid">
-                <div>
-                  <p class="metric-label">Auto optimization</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.autoOptimizeLabel"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Attempts</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.totalAttempts"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Since optimize</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.attemptsSinceOptimization"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Cooldown</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.cooldownLabel"></p>
-                </div>
-              </div>
-              <p class="panel-note">
-                <span class="note-title">Auto-schedule readiness:</span>
-                <span x-text="$store.dspyRlm.objectiveReadiness.label"></span>
-              </p>
-              <p class="panel-note">
-                <span class="note-title">Mode:</span>
-                <span x-text="$store.dspyRlm.optimizationMode"></span>
-              </p>
-              <div class="actions-row">
-                <button
-                  class="btn btn-field"
-                  @click="$store.dspyRlm.runOptimize()"
-                  :disabled="$store.dspyRlm.actionInFlight">
-                  <span x-text="$store.dspyRlm.actionInFlight ? 'Running…' : 'Run optimize now'"></span>
-                </button>
-                <span class="small-note" x-text="$store.dspyRlm.configuredRefreshLabel"></span>
-              </div>
-              <template x-if="$store.dspyRlm.statusMessage">
-                <p class="status-message" x-text="$store.dspyRlm.statusMessage"></p>
-              </template>
-            </article>
-
-            <article class="panel">
-              <h2>Evidence signal</h2>
-              <div class="metric-grid">
-                <div>
-                  <p class="metric-label">Events</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.traceSummary.event_count"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Loops</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.traceSummary.loop_count"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Tools</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.traceSummary.tool_count"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Success</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.formatPercent($store.dspyRlm.traceSummary.success_rate)"></p>
-                </div>
-              </div>
-              <div class="meter">
-                <div class="meter-fill" :style="`width: ${$store.dspyRlm.formatPercent($store.dspyRlm.traceSummary.success_rate)}`"></div>
-              </div>
-              <div class="panel-note">
-                Telemetry is summarized metadata only. Tool labels and counts appear in Top tools.
-              </div>
-            </article>
-
-            <article class="panel">
-              <h2>Worker pool</h2>
-              <div class="metric-grid">
-                <div>
-                  <p class="metric-label">Mode</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.schedulerMode"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Workers</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.schedulerWorkersLabel"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Queued</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.jobCounts.queued"></p>
-                </div>
-                <div>
-                  <p class="metric-label">Running</p>
-                  <p class="metric-value" x-text="$store.dspyRlm.jobCounts.running"></p>
-                </div>
-              </div>
-              <p class="panel-note">
-                <span class="note-title">Health:</span>
-                <span x-text="$store.dspyRlm.schedulerHealth"></span>
-              </p>
-              <p class="panel-note">Workers are local processes sharing this host's SQLite store. This is not multi-host distributed scheduling.</p>
-            </article>
-            </div>
-
-            <div class="dashboard-column dashboard-column--secondary">
-            <article class="panel">
-              <h2>Quality gates</h2>
-              <template x-if="$store.dspyRlm.matrixSummary.length">
-                <div class="tool-list">
-                  <template x-for="metric in $store.dspyRlm.matrixSummary" :key="metric.label">
-                    <div class="result-field">
-                      <span x-text="metric.label"></span>
-                      <span
-                        class="status-badge status-badge--muted"
-                        :class="$store.dspyRlm.matrixScoreClass(metric.score)"
-                        x-text="metric.scoreLabel"
-                      ></span>
-                      <span style="color: var(--dspy-text-soft)" x-text="`samples: ${metric.count}`"></span>
-                    </div>
-                  </template>
+        <div class="two-column">
+          <article class="panel">
+            <h3>Activation scope</h3>
+            <dl class="facts">
+              <div><dt>Profile</dt><dd x-text="$store.dspyRlm.overview.activation.profile_ref || 'missing'"></dd></div>
+              <div><dt>Scope revision</dt><dd x-text="$store.dspyRlm.overview.activation.scope_revision ?? 'missing'"></dd></div>
+              <div><dt>Safety Bypass state</dt><dd x-text="$store.dspyRlm.overview.activation.safety_bypass_state"></dd></div>
+              <div><dt>Rollback eligibility</dt><dd x-text="$store.dspyRlm.overview.activation.rollback_eligibility"></dd></div>
+            </dl>
+            <h4>Durable slots</h4>
+            <div class="rows">
+              <template x-for="slot in $store.dspyRlm.overview.activation.slots" :key="slot.slot_kind">
+                <div class="row">
+                  <div><strong x-text="slot.slot_kind"></strong><small x-text="slot.occupant_ref || 'unoccupied'"></small></div>
+                  <span class="pill" :class="$store.dspyRlm.axisClass(slot)" x-text="slot.state"></span>
                 </div>
               </template>
-              <template x-if="!$store.dspyRlm.matrixSummary.length">
-                <p class="panel-note">Validation metrics are not available until guidance has been evaluated.</p>
-              </template>
-            </article>
-
-            <article class="panel">
-              <h2>Active guidance</h2>
-              <div class="guidance-state">
-                <p>
-                  <span class="note-title">Current guidance:</span>
-                  <span x-text="$store.dspyRlm.lastGuidance ? 'active' : 'pending'"></span>
-                </p>
-                <p><span class="note-title">Updated:</span> <span x-text="$store.dspyRlm.lastGuidanceDate"></span></p>
-              </div>
-              <p class="guidance-block" x-text="$store.dspyRlm.lastGuidance || 'No compiled guidance has been produced yet.'"></p>
-            </article>
-
-            <article class="panel">
-              <h2>Tool patterns</h2>
-              <template x-if="$store.dspyRlm.hasRecentEvents()">
-                <div class="tool-list">
-                  <template x-for="item in $store.dspyRlm.latestToolRows()" :key="item.toolName">
-                    <div class="tool-row">
-                      <div class="tool-row-head">
-                        <span class="tool-row-name" x-text="item.toolName"></span>
-                        <span class="tool-row-count" x-text="item.count"></span>
-                      </div>
-                      <div class="tool-row-meter-wrap">
-                        <div class="tool-row-meter-fill" :style="`width: ${item.width}`"></div>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-              </template>
-              <template x-if="!$store.dspyRlm.hasRecentEvents()">
-                <p class="panel-note">No tool telemetry in the selected context yet.</p>
-              </template>
-            </article>
+              <p class="empty" x-show="!$store.dspyRlm.overview.activation.slots.length">unavailable · slot_projection_unavailable</p>
             </div>
-          </section>
-
-          <article class="panel panel-full">
-            <h2>Latest run</h2>
-            <template x-if="$store.dspyRlm.lastOptimizationResult">
-              <div class="result-grid">
-                <p class="result-field"><span>Status:</span> <strong x-text="$store.dspyRlm.lastOptimizationResult.status || '—'"></strong></p>
-                <p class="result-field"><span>Reason:</span> <span x-text="$store.dspyRlm.lastOptimizationResult.reason || '—'"></span></p>
-                <p class="result-field"><span>Error:</span> <span x-text="$store.dspyRlm.lastOptimizationResult.error || '—'"></span></p>
-                <p class="result-field"><span>Guidance length:</span>
-                  <span x-text="`${$store.dspyRlm.lastOptimizationResult.guidance?.length || 0} chars`"></span>
-                </p>
-              </div>
-            </template>
-            <template x-if="!$store.dspyRlm.lastOptimizationResult">
-              <p class="panel-note">No manual run has been executed in this session yet.</p>
-            </template>
           </article>
 
-          <template x-if="$store.dspyRlm.lastError">
-            <div class="plugin-error" x-text="$store.dspyRlm.lastError"></div>
+          <article class="panel">
+            <h3>Capability matrix</h3>
+            <p class="axis-line">
+              <span x-text="$store.dspyRlm.overview.capabilities.state"></span>
+              <small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.overview.capabilities.reason_codes)"></small>
+            </p>
+            <div class="rows">
+              <template x-for="item in $store.dspyRlm.overview.capabilities.items" :key="item.capability_id">
+                <div class="row">
+                  <div><strong x-text="item.capability_id"></strong><small x-text="item.semantic_id"></small></div>
+                  <span class="pill" :class="$store.dspyRlm.axisClass(item)" x-text="item.state"></span>
+                </div>
+              </template>
+              <p class="empty" x-show="!$store.dspyRlm.overview.capabilities.items.length" x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.overview.capabilities.reason_codes)"></p>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel">
+          <h3>Attention required</h3>
+          <div class="rows">
+            <template x-for="action in $store.dspyRlm.overview.attention_actions" :key="action.action">
+              <div class="row">
+                <strong x-text="action.action"></strong>
+                <div class="right"><span class="pill" :class="$store.dspyRlm.axisClass(action)" x-text="action.state"></span><small x-text="$store.dspyRlm.reasonLabel(action.reason_codes)"></small></div>
+              </div>
+            </template>
+            <p class="empty" x-show="!$store.dspyRlm.overview.attention_actions.length">No projected attention actions.</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" x-show="$store.dspyRlm.activeView === 'candidates'">
+        <div class="view-heading">
+          <div><p class="eyebrow">Search results are not authority</p><h2>Candidates</h2></div>
+          <label class="filter">Disposition
+            <select x-model="$store.dspyRlm.candidateFilter">
+              <option value="all">all</option>
+              <option value="promotion_ready">promotion_ready</option>
+              <option value="review_only">review_only</option>
+              <option value="rejected">rejected</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="candidate-layout">
+          <aside class="candidate-list">
+            <p class="axis-line"><span x-text="$store.dspyRlm.candidates.axis.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.candidates.axis.reason_codes)"></small></p>
+            <template x-for="candidate in $store.dspyRlm.filteredCandidates" :key="candidate.candidate_ref">
+              <button class="candidate-item" :class="{ 'is-selected': $store.dspyRlm.selectedCandidate?.candidate_ref === candidate.candidate_ref }" @click="$store.dspyRlm.selectedCandidateRef = candidate.candidate_ref">
+                <strong x-text="candidate.candidate_ref"></strong>
+                <span x-text="candidate.engine_semantic_id"></span>
+                <small x-text="candidate.disposition.value"></small>
+              </button>
+            </template>
+            <p class="empty" x-show="!$store.dspyRlm.filteredCandidates.length">No candidates in this projected disposition.</p>
+          </aside>
+
+          <template x-if="$store.dspyRlm.selectedCandidate">
+            <div class="candidate-detail">
+              <article class="panel">
+                <div class="panel-title-row">
+                  <div><p class="eyebrow" x-text="$store.dspyRlm.selectedCandidate.candidate_ref"></p><h3>Candidate facts</h3></div>
+                  <span class="pill" :class="$store.dspyRlm.axisClass($store.dspyRlm.selectedCandidate.disposition)" x-text="$store.dspyRlm.selectedCandidate.disposition.value"></span>
+                </div>
+                <dl class="facts facts-wide">
+                  <div><dt>Engine semantic</dt><dd x-text="$store.dspyRlm.selectedCandidate.engine_semantic_id"></dd></div>
+                  <div><dt>Authority ceiling</dt><dd x-text="$store.dspyRlm.selectedCandidate.authority_ceiling"></dd></div>
+                  <div><dt>Benefit claim</dt><dd x-text="$store.dspyRlm.selectedCandidate.benefit_claim"></dd></div>
+                  <div><dt>Benefit state</dt><dd x-text="$store.dspyRlm.selectedCandidate.benefit_state"></dd></div>
+                  <div><dt>Risk tier</dt><dd x-text="$store.dspyRlm.selectedCandidate.risk_tier"></dd></div>
+                  <div><dt>Target slot</dt><dd x-text="$store.dspyRlm.selectedCandidate.target_slot"></dd></div>
+                  <div><dt>Incumbent</dt><dd x-text="$store.dspyRlm.selectedCandidate.incumbent_profile_ref"></dd></div>
+                  <div><dt>Successor</dt><dd x-text="$store.dspyRlm.selectedCandidate.successor_profile_ref || 'none'"></dd></div>
+                  <div><dt>Observed revision</dt><dd x-text="$store.dspyRlm.selectedCandidate.observed_scope_revision"></dd></div>
+                  <div><dt>Lineage</dt><dd x-text="$store.dspyRlm.selectedCandidate.lineage.state"></dd></div>
+                </dl>
+              </article>
+
+              <article class="panel">
+                <h3>Per-bucket evidence</h3>
+                <div class="rows">
+                  <template x-for="bucket in $store.dspyRlm.selectedCandidate.evidence_buckets" :key="bucket.bucket_id">
+                    <div class="row">
+                      <div><strong x-text="bucket.bucket_id"></strong><small x-text="$store.dspyRlm.reasonLabel(bucket.reason_codes)"></small></div>
+                      <div class="right"><span x-text="`${bucket.eligible_count} / ${bucket.required_count}`"></span><span class="pill" x-text="bucket.outcome_state"></span></div>
+                    </div>
+                  </template>
+                  <p class="empty" x-show="!$store.dspyRlm.selectedCandidate.evidence_buckets.length">unavailable · evidence_buckets_unavailable</p>
+                </div>
+              </article>
+
+              <article class="panel diagnostic-panel">
+                <div class="panel-title-row"><h3>Diagnostic telemetry · non-authoritative</h3><span class="pill is-warn">no_promotion_authority</span></div>
+                <p class="warning-copy" x-show="$store.dspyRlm.selectedCandidate.canary.canary_kind === 'diagnostic'">diagnostic_canary_no_activation_authority</p>
+                <dl class="facts facts-wide">
+                  <div><dt>Canary kind</dt><dd x-text="$store.dspyRlm.selectedCandidate.canary.canary_kind"></dd></div>
+                  <div><dt>Authority ceiling</dt><dd x-text="$store.dspyRlm.selectedCandidate.canary.authority_ceiling"></dd></div>
+                  <div><dt>Conclusion</dt><dd x-text="$store.dspyRlm.selectedCandidate.canary.conclusion_ref || 'none'"></dd></div>
+                  <div><dt>activation_authoritative</dt><dd x-text="$store.dspyRlm.selectedCandidate.canary.activation_authoritative ? 'true' : 'false'"></dd></div>
+                  <div><dt>Diagnostic labels</dt><dd x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.selectedCandidate.diagnostic.labels)"></dd></div>
+                  <div><dt>Reason codes</dt><dd x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.selectedCandidate.diagnostic.reason_codes)"></dd></div>
+                </dl>
+              </article>
+
+              <article class="panel">
+                <h3>Monitor timeline</h3>
+                <p class="axis-line"><span x-text="$store.dspyRlm.selectedCandidate.monitor.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.selectedCandidate.monitor.reason_codes)"></small></p>
+                <div class="chips"><template x-for="ref in $store.dspyRlm.selectedCandidate.monitor.receipt_refs" :key="ref"><span x-text="ref"></span></template></div>
+              </article>
+
+              <article class="panel">
+                <h3>Allowed actions</h3>
+                <div class="action-grid">
+                  <template x-for="action in $store.dspyRlm.selectedCandidate.allowed_actions" :key="action.action">
+                    <div class="action-card">
+                      <button class="button" @click="$store.dspyRlm.stageCandidateAction($store.dspyRlm.selectedCandidate, action.action)" :disabled="!$store.dspyRlm.actionAllowed($store.dspyRlm.selectedCandidate, action.action)" x-text="action.action"></button>
+                      <span x-text="action.state"></span>
+                      <small x-text="$store.dspyRlm.reasonLabel(action.reason_codes)"></small>
+                    </div>
+                  </template>
+                  <p class="empty" x-show="!$store.dspyRlm.selectedCandidate.allowed_actions.length">No actions authorized by this exact projection.</p>
+                </div>
+              </article>
+
+              <article class="panel confirmation" x-show="$store.dspyRlm.pendingAction">
+                <div class="panel-title-row"><h3>Exact action proposal</h3><button class="text-button" @click="$store.dspyRlm.clearPendingAction()">Clear</button></div>
+                <p>No authority credential is collected or retained in the browser.</p>
+                <dl class="facts facts-wide">
+                  <div><dt>Action</dt><dd x-text="$store.dspyRlm.pendingAction?.action"></dd></div>
+                  <div><dt>Candidate</dt><dd x-text="$store.dspyRlm.pendingAction?.candidate_ref"></dd></div>
+                  <div><dt>Incumbent</dt><dd x-text="$store.dspyRlm.pendingAction?.incumbent_profile_ref"></dd></div>
+                  <div><dt>Successor</dt><dd x-text="$store.dspyRlm.pendingAction?.successor_profile_ref || 'none'"></dd></div>
+                  <div><dt>Expected revision</dt><dd x-text="$store.dspyRlm.pendingAction?.expected_scope_revision"></dd></div>
+                </dl>
+              </article>
+            </div>
           </template>
-        </section>
-      </template>
-    </div>
+        </div>
+      </section>
+
+      <section class="view" x-show="$store.dspyRlm.activeView === 'evidence_fixtures'">
+        <div class="view-heading"><div><p class="eyebrow">Coverage without retained content</p><h2>Evidence & Fixtures</h2></div></div>
+        <div class="two-column">
+          <article class="panel">
+            <h3>Evidence coverage</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.evidenceFixtures.evidence.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.evidenceFixtures.evidence.reason_codes)"></small></p>
+            <div class="rows">
+              <template x-for="bucket in $store.dspyRlm.evidenceFixtures.evidence.buckets" :key="bucket.bucket_id">
+                <div class="row"><div><strong x-text="bucket.bucket_id"></strong><small x-text="$store.dspyRlm.reasonLabel(bucket.reason_codes)"></small></div><div class="right"><span x-text="`${bucket.eligible_count} / ${bucket.required_count}`"></span><span class="pill" x-text="bucket.outcome_state"></span></div></div>
+              </template>
+              <p class="empty" x-show="!$store.dspyRlm.evidenceFixtures.evidence.buckets.length">unavailable · evidence_projection_unavailable</p>
+            </div>
+          </article>
+          <article class="panel">
+            <h3>Fixture workflow</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.evidenceFixtures.fixtures.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.evidenceFixtures.fixtures.reason_codes)"></small></p>
+            <div class="metric-grid"><template x-for="entry in Object.entries($store.dspyRlm.evidenceFixtures.fixtures.workflow_counts)" :key="entry[0]"><div><span x-text="entry[0]"></span><strong x-text="entry[1]"></strong></div></template></div>
+          </article>
+        </div>
+        <article class="panel">
+          <h3>Fixture families and partitions</h3>
+          <p class="panel-note">Certification holdout is represented by counts only and is never available to candidate generation.</p>
+          <div class="rows">
+            <template x-for="family in $store.dspyRlm.evidenceFixtures.fixtures.families" :key="family.family_ref">
+              <div class="row row-wrap">
+                <div><strong x-text="family.family_ref"></strong><small x-text="$store.dspyRlm.reasonLabel(family.reason_codes)"></small></div>
+                <div class="chips"><span x-text="`training:${family.partition_counts.training || 0}`"></span><span x-text="`tuning:${family.partition_counts.tuning || 0}`"></span><span x-text="`certification_holdout:${family.partition_counts.certification_holdout || 0}`"></span><span x-text="`grant:${family.grant_state}`"></span><span x-text="`eligibility:${family.eligibility_state}`"></span></div>
+              </div>
+            </template>
+            <p class="empty" x-show="!$store.dspyRlm.evidenceFixtures.fixtures.families.length">unavailable · fixture_family_projection_unavailable</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" x-show="$store.dspyRlm.activeView === 'privacy_migration'">
+        <div class="view-heading"><div><p class="eyebrow">Local-only destructive authority</p><h2>Privacy & Migration</h2></div></div>
+        <div class="two-column">
+          <article class="panel">
+            <h3>Privacy quarantine</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.privacyMigration.privacy.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.privacyMigration.privacy.reason_codes)"></small></p>
+          </article>
+          <article class="panel">
+            <h3>Copy-on-write migration</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.privacyMigration.migration.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.privacyMigration.migration.reason_codes)"></small></p>
+            <dl class="facts">
+              <div><dt>Run</dt><dd x-text="$store.dspyRlm.privacyMigration.migration.migration_ref || 'not_started'"></dd></div>
+              <div><dt>Phase</dt><dd x-text="$store.dspyRlm.privacyMigration.migration.phase"></dd></div>
+              <div><dt>Checkpoints</dt><dd x-text="$store.dspyRlm.privacyMigration.migration.checkpoint_count"></dd></div>
+              <div><dt>Key custody</dt><dd x-text="$store.dspyRlm.privacyMigration.migration.key_custody_state"></dd></div>
+              <div><dt>Cutover readiness</dt><dd x-text="$store.dspyRlm.privacyMigration.migration.cutover_readiness"></dd></div>
+              <div><dt>Recovery</dt><dd x-text="$store.dspyRlm.privacyMigration.migration.recovery_state"></dd></div>
+            </dl>
+            <div class="chips"><template x-for="entry in Object.entries($store.dspyRlm.privacyMigration.migration.disposition_counts)" :key="entry[0]"><span x-text="`${entry[0]}:${entry[1]}`"></span></template></div>
+          </article>
+        </div>
+        <article class="panel local-only">
+          <div class="panel-title-row"><h3>Local authority operations</h3><span class="pill is-warn">local_cli_only</span></div>
+          <p class="panel-note">The browser can display content-free instructions, challenges, state, and receipts. It cannot execute these operations.</p>
+          <div class="rows">
+            <template x-for="operation in $store.dspyRlm.privacyMigration.operations" :key="operation.operation_ref">
+              <div class="row row-wrap">
+                <div><strong x-text="operation.operation_kind"></strong><small x-text="operation.operation_ref"></small></div>
+                <div class="operation-facts"><span x-text="operation.state"></span><span x-text="operation.instruction_code"></span><span x-text="operation.challenge_ref || 'challenge_not_issued'"></span><span x-text="$store.dspyRlm.reasonLabel(operation.reason_codes)"></span><template x-for="ref in operation.receipt_refs" :key="ref"><span x-text="ref"></span></template></div>
+              </div>
+            </template>
+            <p class="empty" x-show="!$store.dspyRlm.privacyMigration.operations.length">No local operation receipt is projected.</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="view" x-show="$store.dspyRlm.activeView === 'policy_capabilities'">
+        <div class="view-heading"><div><p class="eyebrow">Calibration, grants, certificates, budgets</p><h2>Policy & Capabilities</h2></div></div>
+        <div class="two-column">
+          <article class="panel">
+            <h3>Activation policy</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.policyCapabilities.policy.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.policyCapabilities.policy.reason_codes)"></small></p>
+            <dl class="facts">
+              <div><dt>Policy</dt><dd x-text="$store.dspyRlm.policyCapabilities.policy.policy_ref || 'unavailable'"></dd></div>
+              <div><dt>Calibration</dt><dd x-text="$store.dspyRlm.policyCapabilities.policy.calibration_state"></dd></div>
+              <div><dt>Activation mode</dt><dd x-text="$store.dspyRlm.policyCapabilities.policy.activation_mode"></dd></div>
+              <div><dt>Automatic authority</dt><dd x-text="$store.dspyRlm.policyCapabilities.policy.automatic_authority_state"></dd></div>
+            </dl>
+          </article>
+          <article class="panel">
+            <h3>Certificates</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.policyCapabilities.capabilities.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.policyCapabilities.capabilities.reason_codes)"></small></p>
+            <dl class="facts"><div><dt>Dependency profile</dt><dd x-text="$store.dspyRlm.policyCapabilities.capabilities.dependency_profile_ref || 'unavailable'"></dd></div><div><dt>Dependency state</dt><dd x-text="$store.dspyRlm.policyCapabilities.capabilities.dependency_state"></dd></div></dl>
+            <div class="rows"><template x-for="item in $store.dspyRlm.policyCapabilities.capabilities.items" :key="item.capability_id"><div class="row"><div><strong x-text="item.capability_id"></strong><small x-text="item.semantic_id"></small></div><span class="pill" :class="$store.dspyRlm.axisClass(item)" x-text="item.state"></span></div></template></div>
+          </article>
+        </div>
+        <div class="two-column">
+          <article class="panel">
+            <h3>Authority grants</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.policyCapabilities.grants.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.policyCapabilities.grants.reason_codes)"></small></p>
+            <div class="rows"><template x-for="grant in $store.dspyRlm.policyCapabilities.grants.items" :key="grant.grant_ref"><div class="row row-wrap"><div><strong x-text="grant.grant_kind"></strong><small x-text="grant.grant_ref"></small></div><div class="chips"><span x-text="grant.state"></span><span x-text="grant.expiry_state"></span><span x-text="grant.authority_ceiling"></span></div></div></template><p class="empty" x-show="!$store.dspyRlm.policyCapabilities.grants.items.length">unavailable · grants_projection_unavailable</p></div>
+            <p class="local-instruction"><span>Local step-up:</span> <strong x-text="$store.dspyRlm.policyCapabilities.local_step_up_instruction_code"></strong></p>
+          </article>
+          <article class="panel">
+            <h3>Operational budgets</h3>
+            <p class="axis-line"><span x-text="$store.dspyRlm.policyCapabilities.budgets.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.policyCapabilities.budgets.reason_codes)"></small></p>
+            <div class="rows"><template x-for="budget in $store.dspyRlm.policyCapabilities.budgets.items" :key="budget.budget_id"><div class="row row-wrap"><div><strong x-text="budget.budget_id"></strong><small x-text="budget.state"></small></div><div class="chips"><span x-text="`limit:${budget.limit_units}`"></span><span x-text="`reserved:${budget.reserved_units}`"></span><span x-text="`consumed:${budget.consumed_units}`"></span></div></div></template><p class="empty" x-show="!$store.dspyRlm.policyCapabilities.budgets.items.length">unavailable · budgets_projection_unavailable</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" x-show="$store.dspyRlm.activeView === 'receipts_audit'">
+        <div class="view-heading">
+          <div><p class="eyebrow">Opaque exact links</p><h2>Receipts & Audit</h2></div>
+          <label class="filter">Category
+            <select x-model="$store.dspyRlm.receiptFilter">
+              <template x-for="category in $store.dspyRlm.receiptCategories" :key="category"><option :value="category" x-text="category"></option></template>
+            </select>
+          </label>
+        </div>
+        <article class="panel">
+          <p class="axis-line"><span x-text="$store.dspyRlm.receiptsAudit.receipts.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.receiptsAudit.receipts.reason_codes)"></small></p>
+          <div class="receipt-list">
+            <template x-for="receipt in $store.dspyRlm.filteredReceipts" :key="receipt.receipt_ref">
+              <article class="receipt">
+                <div class="receipt-sequence" x-text="receipt.sequence"></div>
+                <div><div class="panel-title-row"><strong x-text="receipt.action"></strong><span class="pill" :class="$store.dspyRlm.axisClass(receipt)" x-text="receipt.state"></span></div><p><span x-text="receipt.category"></span> · <span x-text="receipt.receipt_ref"></span></p><small x-text="$store.dspyRlm.observedLabel(receipt.observed_at)"></small><div class="chips"><template x-for="related in receipt.related_receipt_refs" :key="related"><span x-text="related"></span></template></div></div>
+              </article>
+            </template>
+            <p class="empty" x-show="!$store.dspyRlm.filteredReceipts.length">No receipts in this exact category projection.</p>
+          </div>
+        </article>
+      </section>
+    </main>
 
     <style>
-      :root {
-        --dspy-bg-grad: linear-gradient(140deg, #0f1020, #111a2b 40%, #12121b 100%);
-        --dspy-panel: rgba(255, 255, 255, 0.05);
-        --dspy-panel-border: rgba(255, 255, 255, 0.14);
-        --dspy-text-soft: rgba(255, 255, 255, 0.76);
-        --dspy-success: #56d39a;
-        --dspy-warning: #f4b35f;
-        --dspy-danger: #ff7b7b;
-      }
-
-      .dspy-rlm-shell {
-        color: #f4f7ff;
-        background: var(--dspy-bg-grad);
-        padding: 14px;
-        border-radius: 12px;
-        border: 1px solid var(--dspy-panel-border);
-      }
-
-      .dspy-rlm-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 16px;
-        align-items: flex-start;
-        margin-bottom: 14px;
-      }
-
-      .dspy-rlm-header h1 {
-        margin: 0;
-        font-size: 1.65rem;
-      }
-
-      .kicker {
-        font-size: 0.66rem;
-        letter-spacing: 0.13em;
-        text-transform: uppercase;
-        color: var(--dspy-text-soft);
-      }
-
-      .header-actions {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-
-      .status-band {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 14px;
-        padding: 10px;
-        border: 1px solid var(--dspy-panel-border);
-        border-radius: 10px;
-        background: rgba(17, 20, 34, 0.6);
-      }
-
-      .context-control {
-        display: inline-flex;
-        flex-direction: column;
-        gap: 6px;
-        font-size: 0.8rem;
-      }
-
-      .context-control span {
-        color: var(--dspy-text-soft);
-      }
-
-      .context-control input {
-        min-width: 340px;
-        padding: 8px 10px;
-        border-radius: 10px;
-        border: 1px solid var(--dspy-panel-border);
-        color: #fff;
-        background: rgba(255, 255, 255, 0.06);
-      }
-
-      .badge-strip {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .status-badge {
-        font-size: 0.78rem;
-        padding: 5px 10px;
-        border-radius: 999px;
-        border: 1px solid var(--dspy-panel-border);
-        color: var(--dspy-text-soft);
-      }
-
-      .status-badge.is-ok,
-      .status-badge.status-badge--ok {
-        background: rgba(86, 211, 154, 0.15);
-        border-color: rgba(86, 211, 154, 0.4);
-        color: #cbffdf;
-      }
-
-      .status-badge.is-run,
-      .status-badge.status-badge--running {
-        background: rgba(244, 179, 95, 0.15);
-        border-color: rgba(244, 179, 95, 0.4);
-        color: #ffe7be;
-      }
-
-      .status-badge.is-bad,
-      .status-badge.status-badge--danger {
-        background: rgba(255, 123, 123, 0.15);
-        border-color: rgba(255, 123, 123, 0.4);
-        color: #ffd4d4;
-      }
-
-      .status-badge.status-badge--warn {
-        background: rgba(244, 179, 95, 0.1);
-        border-color: rgba(244, 179, 95, 0.3);
-        color: #ffe2b0;
-      }
-
-      .status-badge.status-badge--muted {
-        color: #d5ddff;
-        border-color: var(--dspy-panel-border);
-        background: rgba(255, 255, 255, 0.04);
-      }
-
-      .status-badge.is-muted {
-        color: #d5ddff;
-      }
-
-      .dspy-rlm-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 12px;
-      }
-
-      .panel {
-        padding: 12px;
-        border-radius: 12px;
-        border: 1px solid var(--dspy-panel-border);
-        background: var(--dspy-panel);
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .panel h2 {
-        margin: 0;
-        font-size: 1rem;
-      }
-
-      .panel-full {
-        margin-top: 12px;
-      }
-
-      .metric-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(80px, 1fr));
-        gap: 8px;
-      }
-
-      .metric-label {
-        margin: 0;
-        color: var(--dspy-text-soft);
-        font-size: 0.77rem;
-      }
-
-      .metric-value {
-        margin: 0;
-        font-weight: 700;
-        font-size: 1.2rem;
-      }
-
-      .panel-note {
-        margin: 0;
-        font-size: 0.82rem;
-        color: #e8ecff;
-        display: flex;
-        gap: 6px;
-      }
-
-      .note-title {
-        color: var(--dspy-text-soft);
-      }
-
-      .actions-row {
-        display: inline-flex;
-        gap: 8px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-
-      .small-note {
-        font-size: 0.8rem;
-        color: var(--dspy-text-soft);
-      }
-
-      .status-message {
-        margin: 0;
-        font-size: 0.83rem;
-        color: #d6ffe0;
-      }
-
-      .meter {
-        margin-top: 4px;
-        width: 100%;
-        height: 8px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        overflow: hidden;
-      }
-
-      .meter-fill {
-        width: 0;
-        height: 100%;
-        border-radius: 999px;
-        background: linear-gradient(to right, #ff8f70, #56d39a);
-        transition: none;
-      }
-
-      .guidance-state {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        font-size: 0.8rem;
-        color: #e8ecff;
-      }
-
-      .guidance-state p {
-        margin: 0;
-      }
-
-      .guidance-block {
-        margin: 0;
-        padding: 10px;
-        border-radius: 10px;
-        font-size: 0.82rem;
-        line-height: 1.4;
-        white-space: pre-wrap;
-        background: rgba(17, 21, 35, 0.65);
-      }
-
-      .tool-list {
-        display: grid;
-        gap: 8px;
-      }
-
-      .tool-row {
-        display: grid;
-        gap: 4px;
-      }
-
-      .tool-row-head {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.82rem;
-      }
-
-      .tool-row-name {
-        color: #edf2ff;
-      }
-
-      .tool-row-count {
-        color: #b4bde0;
-      }
-
-      .tool-row-meter-wrap {
-        width: 100%;
-        height: 7px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        overflow: hidden;
-      }
-
-      .tool-row-meter-fill {
-        height: 100%;
-        width: 0;
-        border-radius: 999px;
-        background: linear-gradient(to right, #82b6ff, #56d39a);
-      }
-
-      .result-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 8px 14px;
-      }
-
-      .result-field {
-        margin: 0;
-        font-size: 0.82rem;
-      }
-
-      .result-field span {
-        color: var(--dspy-text-soft);
-      }
-
-      .plugin-page-loading {
-        padding: 8px 0;
-      }
-
-      .loading-actions {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-      }
-
-      .plugin-error {
-        margin-top: 6px;
-        padding: 8px 10px;
-        border-radius: 8px;
-        color: #ffdad6;
-        background: #4f1d1d;
-        border: 1px solid #7a2727;
-      }
+      :root { --ink:#edf2ff; --soft:#9ca9c5; --line:rgba(191,207,240,.16); --panel:rgba(14,23,42,.78); --bg:#07101f; --ok:#68dfaa; --warn:#ffc96b; --danger:#ff8b96; --accent:#8da8ff; }
+      * { box-sizing: border-box; }
+      body { margin:0; color:var(--ink); background:radial-gradient(circle at 18% 0%,#182b4e 0,var(--bg) 42%); font:14px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+      button,input,select { font:inherit; }
+      button:focus-visible,input:focus-visible,select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+      .operator-shell { max-width:1440px; min-height:100vh; margin:auto; padding:24px; }
+      .operator-header,.view-heading,.panel-title-row,.context-band,.row { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+      h1,h2,h3,h4,p { margin-top:0; } h1,h2,h3 { font-family:ui-serif,Georgia,Cambria,"Times New Roman",serif; letter-spacing:-.018em; } h1{font-size:30px;margin-bottom:4px} h2{font-size:24px;margin-bottom:0} h3{font-size:17px;margin-bottom:16px} h4{font-size:13px;color:var(--soft);margin:20px 0 8px;text-transform:uppercase;letter-spacing:.08em}
+      .eyebrow { margin-bottom:4px; color:var(--accent); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.13em; }
+      .deck,.panel-note,.empty,.warning-copy,.local-instruction { color:var(--soft); }
+      .button,.view-tab,.candidate-item,.text-button { border:1px solid var(--line); color:var(--ink); background:rgba(255,255,255,.055); cursor:pointer; }
+      .button { border-radius:9px; padding:9px 13px; } .button:disabled { opacity:.42; cursor:not-allowed; }
+      .text-button { border:0; background:none; color:var(--accent); }
+      .context-band { margin:20px 0 12px; padding:12px; border:1px solid var(--line); border-radius:12px; background:rgba(0,0,0,.18); }
+      .context-band label,.filter { display:flex; align-items:center; gap:9px; color:var(--soft); }
+      input,select { color:var(--ink); border:1px solid var(--line); background:#0a1529; border-radius:7px; padding:8px 10px; }
+      .notice { display:flex; gap:8px; color:var(--warn); }
+      .view-tabs { display:flex; gap:7px; overflow-x:auto; padding:4px 0 16px; }
+      .view-tab { flex:0 0 auto; padding:9px 12px; border-radius:999px; color:var(--soft); }
+      .view-tab.is-active { color:#07101f; background:var(--accent); border-color:var(--accent); font-weight:800; }
+      .view { border-top:1px solid var(--line); padding-top:22px; } .view-heading { margin-bottom:18px; }
+      .loading { padding:24px; color:var(--soft); } .loading-dot { display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:8px; }
+      .axis-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px; }
+      .axis-card,.panel { border:1px solid var(--line); border-radius:13px; background:var(--panel); box-shadow:0 12px 32px rgba(0,0,0,.16); }
+      .axis-card { padding:15px; display:flex; flex-direction:column; gap:6px; } .axis-card span,.axis-card small { color:var(--soft); } .axis-card strong { font-size:20px; }
+      .panel { padding:18px; margin-bottom:12px; } .two-column { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+      .facts { display:grid; gap:9px; margin:0; } .facts-wide { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .facts div { display:grid; grid-template-columns:minmax(120px,.6fr) minmax(0,1fr); gap:10px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+      dt { color:var(--soft); } dd { margin:0; overflow-wrap:anywhere; }
+      .rows { display:grid; gap:1px; } .row { min-height:52px; padding:9px 0; border-bottom:1px solid var(--line); }
+      .row>div:first-child { display:grid; gap:2px; } .row small,.right small { color:var(--soft); } .right { display:flex; align-items:flex-end; gap:8px; flex-direction:column; }
+      .row-wrap { flex-wrap:wrap; } .axis-line { display:flex; justify-content:space-between; gap:12px; padding:9px 11px; border-radius:8px; background:rgba(255,255,255,.04); } .axis-line small { color:var(--soft); text-align:right; }
+      .pill { display:inline-flex; width:max-content; align-items:center; padding:4px 8px; border:1px solid var(--line); border-radius:999px; color:var(--soft); }
+      .is-ok { color:var(--ok)!important; }.is-warn { color:var(--warn)!important; }.is-danger { color:var(--danger)!important; }
+      .candidate-layout { display:grid; grid-template-columns:280px minmax(0,1fr); gap:12px; }
+      .candidate-list { display:grid; align-content:start; gap:7px; } .candidate-item { display:grid; gap:4px; text-align:left; padding:11px; border-radius:9px; color:var(--soft); }
+      .candidate-item strong { color:var(--ink); }.candidate-item.is-selected { border-color:var(--accent); background:rgba(141,168,255,.12); }
+      .diagnostic-panel { border-color:rgba(255,201,107,.42); background:rgba(70,47,14,.45); } .warning-copy { font-family:ui-monospace,SFMono-Regular,monospace; }
+      .chips { display:flex; flex-wrap:wrap; gap:6px; }.chips span,.operation-facts span { padding:4px 7px; border-radius:6px; background:rgba(255,255,255,.05); color:var(--soft); overflow-wrap:anywhere; }
+      .action-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }.action-card { display:grid; gap:6px; padding:10px; border:1px solid var(--line); border-radius:9px; }.action-card small { color:var(--soft); }
+      .confirmation { border-color:rgba(104,223,170,.45); }.metric-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }.metric-grid>div { display:grid; gap:4px; padding:10px; border:1px solid var(--line); border-radius:8px; }.metric-grid span { color:var(--soft); }.metric-grid strong { font-size:20px; }
+      .local-only { border-style:dashed; }.operation-facts { display:flex; flex-wrap:wrap; gap:6px; max-width:70%; justify-content:flex-end; }.local-instruction { margin:16px 0 0; }
+      .receipt-list { display:grid; }.receipt { display:grid; grid-template-columns:48px minmax(0,1fr); gap:12px; padding:14px 0; border-bottom:1px solid var(--line); }.receipt-sequence { display:grid; place-items:center; width:38px;height:38px;border-radius:50%;background:rgba(141,168,255,.14);color:var(--accent);font-weight:800; }.receipt p { color:var(--soft); margin:4px 0; }
+      @media (max-width:900px) { .axis-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.two-column,.candidate-layout{grid-template-columns:1fr}.candidate-list{grid-template-columns:repeat(2,minmax(0,1fr))}.facts-wide{grid-template-columns:1fr}.action-grid{grid-template-columns:1fr}.operator-header,.context-band{align-items:flex-start;flex-direction:column}.operation-facts{max-width:100%;justify-content:flex-start} }
+      @media (max-width:560px) { .operator-shell{padding:14px}.axis-grid,.candidate-list,.metric-grid{grid-template-columns:1fr}.view-heading{align-items:flex-start;flex-direction:column}.facts div{grid-template-columns:1fr}.row{align-items:flex-start;flex-direction:column}.right{align-items:flex-start} }
     </style>
-    <link rel="stylesheet" href="/plugins/dspy_rlm/webui/dspy-rlm-polish.css?v=101" />
   </body>
 </html>

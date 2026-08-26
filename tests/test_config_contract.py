@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import yaml
@@ -9,10 +8,8 @@ import yaml
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _checked_in_configs() -> tuple[dict, dict]:
-    defaults = yaml.safe_load((PLUGIN_ROOT / "default_config.yaml").read_text(encoding="utf-8"))
-    runtime = json.loads((PLUGIN_ROOT / "config.json").read_text(encoding="utf-8"))
-    return defaults, runtime
+def _checked_in_defaults() -> dict:
+    return yaml.safe_load((PLUGIN_ROOT / "default_config.yaml").read_text(encoding="utf-8"))
 
 
 def _assert_inert_v2_defaults(config: dict) -> None:
@@ -34,20 +31,13 @@ def _assert_inert_v2_defaults(config: dict) -> None:
 
 
 def test_checked_in_default_config_is_inert_v2() -> None:
-    defaults, _ = _checked_in_configs()
+    defaults = _checked_in_defaults()
 
     _assert_inert_v2_defaults(defaults)
 
 
-def test_checked_in_runtime_config_matches_inert_v2_defaults() -> None:
-    defaults, runtime = _checked_in_configs()
-
-    _assert_inert_v2_defaults(runtime)
-    assert runtime == defaults
-
-
-def test_checked_in_runtime_config_has_no_conflicting_legacy_aliases() -> None:
-    _, runtime = _checked_in_configs()
+def test_checked_in_default_config_has_no_conflicting_legacy_aliases() -> None:
+    defaults = _checked_in_defaults()
 
     forbidden_legacy_keys = {
         "auto_optimize_enabled",
@@ -63,4 +53,4 @@ def test_checked_in_runtime_config_has_no_conflicting_legacy_aliases() -> None:
         "auto_optimize",
         "scheduler_max_workers",
     }
-    assert forbidden_legacy_keys.isdisjoint(runtime)
+    assert forbidden_legacy_keys.isdisjoint(defaults)

@@ -2,900 +2,583 @@ import { createStore } from "/js/AlpineStore.js";
 import { callJsonApi } from "/js/api.js";
 import { getContext } from "/index.js";
 
-const PLUGIN_NAME = "dspy_rlm";
 const API_BASE = "/plugins/dspy_rlm";
-const MIN_REFRESH_SECONDS = 1;
-const DEFAULT_REFRESH_SECONDS = 8;
-const STATUS_REQUEST_TIMEOUT_MS = 10000;
+const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 
-const DEFAULT_SUMMARY = {
-  event_count: 0,
-  loop_count: 0,
-  tool_count: 0,
-  success_rate: 0,
-  top_tools: [],
-  latest_objective: "",
-  latest_response: "",
-  latest_ts: "",
-};
+const VIEW_DEFINITIONS = Object.freeze({
+  overview: Object.freeze({ label: "Overview", schema: "a0.operator-overview.v1" }),
+  candidates: Object.freeze({ label: "Candidates", schema: "a0.operator-candidates.v1" }),
+  evidence_fixtures: Object.freeze({ label: "Evidence & Fixtures", schema: "a0.operator-evidence-fixtures.v1" }),
+  privacy_migration: Object.freeze({ label: "Privacy & Migration", schema: "a0.operator-privacy-migration.v1" }),
+  policy_capabilities: Object.freeze({ label: "Policy & Capabilities", schema: "a0.operator-policy-capabilities.v1" }),
+  receipts_audit: Object.freeze({ label: "Receipts & Audit", schema: "a0.operator-receipts-audit.v1" }),
+});
 
-const DEFAULT_STATE = {
-  optimization_running: false,
-  optimization_status: "idle",
-  optimization_count: 0,
-  attempts_total: 0,
-  attempts_since_optimization: 0,
-  last_optimization_at: "",
-  last_optimization_error: "",
-  last_guidance: "",
-  last_guidance_at: "",
-  optimization_result: {},
-  optimization_requested_by: "",
-  optimization_status_message: "",
-  optimization_queue: "",
-};
+const VIEW_IDS = Object.freeze(Object.keys(VIEW_DEFINITIONS));
 
-const DEFAULT_SCHEDULER = {
-  // SQLite-backed workers coordinate on one host only.
-  mode: "local_multiprocess",
-  target_workers: 1,
-  running_workers: 0,
-  active_worker_ids: [],
-  jobs: {},
-  samples: {},
-  guidance_rows: 0,
-  sample_rows: 0,
-  context_states: 0,
-  queue_limit: 0,
-  running_jobs: [],
-  recent_jobs: [],
-  stop_requested: false,
-};
-
-function toInt(value, fallback = 0) {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  if (Number.isFinite(parsed)) {
-    return parsed;
-  }
-  return fallback;
+function safeToken(value, fallback = "unavailable") {
+  return typeof value === "string" && SAFE_TOKEN.test(value) ? value : fallback;
 }
 
-function toFloat(value, fallback = 0) {
-  const parsed = Number.parseFloat(String(value ?? ""));
-  if (Number.isFinite(parsed)) {
-    return parsed;
-  }
-  return fallback;
+function optionalToken(value) {
+  return value === null || value === undefined ? null : safeToken(value);
 }
 
-function toBool(value, fallback = false) {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return value !== 0;
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    return ["1", "true", "yes", "on", "enabled"].includes(normalized);
-  }
-  return fallback;
+function safeTimestamp(value) {
+  return typeof value === "string" && SAFE_TIMESTAMP.test(value) ? value : null;
 }
 
-function coerceArray(value) {
-  return Array.isArray(value) ? value : [];
+function safeCount(value) {
+  return Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
-function toStringSafe(value) {
-  return String(value ?? "");
+function safeBoolean(value) {
+  return value === true;
 }
 
-function normalizePercent(value) {
-  return `${Math.max(0, Math.min(100, Math.round(toFloat(value, 0) * 100)))}%`;
+function safeCodes(values) {
+  if (!Array.isArray(values)) return [];
+  return values.slice(0, 32).map((value) => safeToken(value)).filter((value) => value !== "unavailable");
 }
 
-function normalizeConfig(raw = {}) {
-  const cfg = typeof raw === "object" && raw ? raw : {};
-  const trace = cfg.trace_capture && typeof cfg.trace_capture === "object" ? cfg.trace_capture : {};
-  const optimization = cfg.optimization && typeof cfg.optimization === "object" ? cfg.optimization : {};
-  const scheduler = cfg.scheduler && typeof cfg.scheduler === "object" ? cfg.scheduler : {};
-  const matrix = cfg.matrix && typeof cfg.matrix === "object" ? cfg.matrix : {};
-  const evaluator = cfg.evaluator && typeof cfg.evaluator === "object" ? cfg.evaluator : {};
-  const prompt = cfg.prompt && typeof cfg.prompt === "object" ? cfg.prompt : {};
-  const rlm = cfg.rlm && typeof cfg.rlm === "object" ? cfg.rlm : {};
-  const promptOptimization = cfg.prompt_optimization && typeof cfg.prompt_optimization === "object" ? cfg.prompt_optimization : {};
+function safePairs(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key, count]) => SAFE_TOKEN.test(key) && Number.isInteger(count) && count >= 0)
+      .map(([key, count]) => [key, count]),
+  );
+}
 
+function axis(value = {}, reason = "projection_unavailable") {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const reasons = safeCodes(source.reason_codes);
+  const state = safeToken(source.state);
   return {
-    ...cfg,
-    enabled: toBool(cfg.enabled, false),
-    instrumentation_enabled: toBool(cfg.instrumentation_enabled, false),
-    status_refresh_seconds: toInt(cfg.status_refresh_seconds, DEFAULT_REFRESH_SECONDS),
-    auto_optimize_enabled: toBool(cfg.auto_optimize_enabled, toBool(optimization.auto_optimize, false)),
-    optimization_interval_messages: toInt(cfg.optimization_interval_messages, toInt(optimization.auto_optimize_interval_messages, 12)),
-    optimization_min_samples: toInt(cfg.optimization_min_samples, toInt(optimization.min_samples_for_promotion, 10)),
-    optimization_trace_window: toInt(cfg.optimization_trace_window, toInt(trace.max_events_per_context, 220)),
-    optimization_cooldown_hours: toInt(cfg.optimization_cooldown_hours, toInt(optimization.cooldown_hours, 6)),
-    trace_retention_limit: toInt(cfg.trace_retention_limit, toInt(trace.event_ttl_seconds, 604800)),
-    trace_enabled: toBool(cfg.trace_enabled, toBool(cfg.instrumentation_enabled, false)),
-    enable_dspy_optimizer: toBool(cfg.enable_dspy_optimizer, toBool(optimization.enable_dspy_optimizer, false)),
-    gepa_steps: toInt(cfg.gepa_steps, toInt(optimization.ge_pa_steps, 3)),
-    gepa_threads: toInt(cfg.gepa_threads, toInt(optimization.ge_pa_threads, 2)),
-    ge_pa_steps: toInt(cfg.ge_pa_steps, toInt(cfg.gepa_steps, 3)),
-    ge_pa_threads: toInt(cfg.ge_pa_threads, toInt(cfg.gepa_threads, 2)),
-    optimization_preview_limit: toInt(cfg.optimization_preview_limit, toInt(optimization.optimization_preview_limit, 20)),
-    dependencies: cfg.dependencies && typeof cfg.dependencies === "object" ? cfg.dependencies : {},
-    rlm: {
-      ...rlm,
-      enabled: toBool(rlm.enabled, true),
-      model_configured: toBool(rlm.model_configured, false),
-    },
-    prompt_optimization: {
-      ...promptOptimization,
-      enabled: toBool(promptOptimization.enabled, false),
-      capture_approved: toBool(promptOptimization.capture_approved ?? promptOptimization.allow_prompt_capture, false),
-      target_mode: toStringSafe(promptOptimization.target_mode || "guidance_overlay"),
-      activation_mode: toStringSafe(promptOptimization.activation_mode || "manual"),
-      canary_percentage: toInt(promptOptimization.canary_percentage, 10),
-    },
-    scheduler: {
-      mode: toStringSafe(cfg.scheduler_mode || scheduler.mode || "local_multiprocess"),
-      max_workers: toInt(cfg.scheduler_max_workers, toInt(scheduler.max_workers, 2)),
-      poll_interval_seconds: toInt(cfg.scheduler_poll_interval_seconds, toInt(scheduler.poll_interval_seconds, 3)),
-      job_lease_seconds: toInt(cfg.scheduler_job_lease_seconds, toInt(scheduler.job_lease_seconds, 45)),
-      max_retries: toInt(cfg.scheduler_max_retries, toInt(scheduler.max_retries, 2)),
-      heartbeat_seconds: toInt(cfg.scheduler_heartbeat_seconds, toInt(scheduler.heartbeat_seconds, 8)),
-      stale_worker_seconds: toInt(cfg.scheduler_stale_worker_seconds, toInt(scheduler.stale_worker_seconds, 180)),
-      scheduler_lock_ttl_seconds: toInt(cfg.scheduler_lock_ttl_seconds, toInt(scheduler.scheduler_lock_ttl_seconds, 30)),
-      enforce_single_tenant_per_context: toBool(cfg.scheduler_enforce_single_tenant_per_context, toBool(scheduler.enforce_single_tenant_per_context, false)),
-      backoff_base_seconds: toInt(cfg.scheduler_backoff_base_seconds, toInt(scheduler.backoff_base_seconds, 2)),
-    },
-    optimization: {
-      ...optimization,
-      enabled: toBool(optimization.enabled, false),
-      auto_optimize: toBool(optimization.auto_optimize, false),
-      auto_optimize_interval_messages: toInt(optimization.auto_optimize_interval_messages, 12),
-      min_samples_for_promotion: toInt(optimization.min_samples_for_promotion, 10),
-      cooldown_hours: toInt(optimization.cooldown_hours, 6),
-      max_samples_per_objective: toInt(optimization.max_samples_per_objective, 40),
-      confidence_floor: toFloat(optimization.confidence_floor, 0.7),
-      global_score_threshold: toFloat(optimization.global_score_threshold, 0.8),
-      ge_pa_steps: toInt(cfg.gepa_steps, toInt(cfg.ge_pa_steps, toInt(optimization.ge_pa_steps, 3))),
-      ge_pa_threads: toInt(cfg.gepa_threads, toInt(cfg.ge_pa_threads, toInt(optimization.ge_pa_threads, 2))),
-      enable_dspy_optimizer: toBool(cfg.enable_dspy_optimizer, toBool(optimization.enable_dspy_optimizer, false)),
-      enable_replay_audit: toBool(optimization.enable_replay_audit, true),
-      replay_set_size: toInt(optimization.replay_set_size, 6),
-      replay_tolerable_regression: toFloat(optimization.replay_tolerable_regression, 0.1),
-    },
-    matrix: {
-      ...matrix,
-      version: matrix.version || "2.0",
-      shell: { ...(matrix.shell || {}), enabled: toBool(matrix?.shell?.enabled, true) },
-      tool_retrieval: { ...(matrix.tool_retrieval || {}), enabled: toBool(matrix?.tool_retrieval?.enabled, true) },
-      reasoning: { ...(matrix.reasoning || {}), enabled: toBool(matrix?.reasoning?.enabled, true) },
-      decision_making: { ...(matrix.decision_making || {}), enabled: toBool(matrix?.decision_making?.enabled, true) },
-    },
-    evaluator: {
-      ...evaluator,
-      enable_semantic_judge: toBool(evaluator.enable_semantic_judge, false),
-      semantic_loop_batch_size: toInt(evaluator.semantic_loop_batch_size, 8),
-      risk_threshold: toFloat(evaluator.risk_threshold, 0.25),
-      enable_replay_audit: toBool(evaluator.enable_replay_audit, true),
-      max_replay_depth: toInt(evaluator.max_replay_depth, 6),
-      policy_breach_keywords: coerceArray(evaluator.policy_breach_keywords).length
-        ? evaluator.policy_breach_keywords
-        : toStringSafe(evaluator.policy_breach_keywords)
-          .split(/[\n,]/)
-          .map((item) => item.trim())
-          .filter(Boolean),
-      preferred_dspy_model: toStringSafe(evaluator.preferred_dspy_model),
-    },
-    prompt: {
-      inject_guidance: toBool(prompt.inject_guidance, false),
-      inject_even_without_guidance: toBool(prompt.inject_even_without_guidance, false),
-      max_injected_chars: toInt(prompt.max_injected_chars, 1800),
-      fallback_guidance: toStringSafe(prompt.fallback_guidance),
-    },
+    state,
+    observed_at: safeTimestamp(source.observed_at),
+    freshness: safeToken(source.freshness, "unavailable"),
+    reason_codes: reasons.length ? reasons : (state === "unavailable" ? [reason] : []),
   };
 }
 
-function normalizeTraceSummary(raw = {}) {
-  // The status API emits only { tool, count }. Keep this strict so a malformed
-  // or older response cannot turn arbitrary objects/text into UI telemetry.
-  const rows = coerceArray(raw.top_tools)
-    .filter((item) => item && typeof item === "object" && !Array.isArray(item))
-    .map((item) => ({
-      tool: toStringSafe(item.tool || "unknown"),
-      count: Math.max(0, toInt(item.count, 0)),
-    }));
-
-  const summary = {
-    ...DEFAULT_SUMMARY,
-    ...raw,
-    top_tools: rows,
-    event_count: toInt(raw.event_count, 0),
-    loop_count: toInt(raw.loop_count, 0),
-    tool_count: toInt(raw.tool_count, 0),
-    success_rate: Math.max(0, Math.min(1, toFloat(raw.success_rate, 0))),
-  };
-  return summary;
-}
-
-function normalizeScheduler(raw = {}) {
-  const scheduler = raw?.scheduler && typeof raw.scheduler === "object" ? raw.scheduler : {};
-  const base = {
-    ...DEFAULT_SCHEDULER,
-    ...raw,
-    jobs: raw?.jobs && typeof raw.jobs === "object" ? raw.jobs : {},
-    samples: raw?.samples && typeof raw.samples === "object" ? raw.samples : {},
-    target_workers: toInt(raw.target_workers, 1),
-    running_workers: toInt(raw.running_workers, 0),
-    active_worker_ids: coerceArray(raw.active_worker_ids).map(toStringSafe),
-    queue_limit: toInt(raw.queue_limit, 0),
-    guidance_rows: toInt(raw.guidance_rows, 0),
-    sample_rows: toInt(raw.sample_rows, 0),
-    context_states: toInt(raw.context_states, 0),
-    stop_requested: toBool(raw.stop_requested, false),
-    running_jobs: coerceArray(raw.running_jobs),
-    recent_jobs: coerceArray(raw.recent_jobs),
-  };
-
-  // There is no multi-host scheduler in this plugin. "single" is a valid
-  // worker count configuration, not a different deployment topology.
-  base.mode = "local_multiprocess";
-  return base;
-}
-
-function normalizeContextSamples(raw = {}) {
+function unavailableAxis(reason = "projection_unavailable") {
   return {
-    counts: raw?.counts && typeof raw.counts === "object" ? raw.counts : {},
-    confidence: raw?.confidence && typeof raw.confidence === "object" ? raw.confidence : {},
+    state: "unavailable",
+    observed_at: null,
+    freshness: "unavailable",
+    reason_codes: [reason],
   };
 }
 
-function normalizeMatrix(raw = {}) {
-  const bucketMatrix = {};
-  const bucketScores = raw?.bucket_scores && typeof raw.bucket_scores === "object" ? raw.bucket_scores : {};
-  const bucketCounts = raw?.bucket_counts && typeof raw.bucket_counts === "object" ? raw.bucket_counts : {};
+function actionSummary(value = {}) {
+  return {
+    action: safeToken(value.action),
+    state: safeToken(value.state),
+    reason_codes: safeCodes(value.reason_codes),
+  };
+}
 
-  const rows = raw?.bucket_matrix && typeof raw.bucket_matrix === "object" ? raw.bucket_matrix : {};
-  for (const [bucket, values] of Object.entries(rows)) {
-    const normalized = values && typeof values === "object" ? values : {};
-    bucketMatrix[bucket] = {
-      rows: toInt(normalized.rows, 0),
-      semantic_match: toFloat(normalized.semantic_match, 0),
-      command_safety: toFloat(normalized.command_safety, 0),
-      execution_reliability: toFloat(normalized.execution_reliability, 0),
-      evidence_recall: toFloat(normalized.evidence_recall, 0),
-      evidence_precision: toFloat(normalized.evidence_precision, 0),
-      answer_quality: toFloat(normalized.answer_quality, 0),
-      policy_compliance: toFloat(normalized.policy_compliance, 0),
+function capabilitySummary(value = {}) {
+  return {
+    capability_id: safeToken(value.capability_id),
+    semantic_id: safeToken(value.semantic_id),
+    state: safeToken(value.state),
+    reason_codes: safeCodes(value.reason_codes),
+  };
+}
+
+function bucketSummary(value = {}) {
+  return {
+    ...axis(value),
+    bucket_id: safeToken(value.bucket_id),
+    required_count: safeCount(value.required_count),
+    eligible_count: safeCount(value.eligible_count),
+    outcome_state: safeToken(value.outcome_state),
+  };
+}
+
+function baseProjection(raw, viewId, contextId) {
+  const definition = VIEW_DEFINITIONS[viewId];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  if (raw.schema !== definition.schema || raw.view !== viewId) return null;
+  const projectedContext = safeToken(raw.context_ref, "");
+  const requestedContext = safeToken(contextId, "");
+  if (!projectedContext || !requestedContext || projectedContext !== requestedContext) return null;
+  return raw;
+}
+
+function unavailableOverview() {
+  return {
+    ordinary_runtime: unavailableAxis(),
+    improvement: unavailableAxis(),
+    migration_cutover: unavailableAxis(),
+    activation: {
+      ...unavailableAxis(),
+      profile_ref: null,
+      scope_revision: null,
+      safety_bypass_state: "unavailable",
+      rollback_eligibility: "unavailable",
+      slots: [],
+    },
+    capabilities: { ...unavailableAxis(), items: [] },
+    attention_actions: [],
+  };
+}
+
+function normalizeOverview(raw, contextId) {
+  const value = baseProjection(raw, "overview", contextId);
+  if (!value) return unavailableOverview();
+  const activation = value.activation && typeof value.activation === "object" ? value.activation : {};
+  const capabilities = value.capabilities && typeof value.capabilities === "object" ? value.capabilities : {};
+  return {
+    ordinary_runtime: axis(value.ordinary_runtime),
+    improvement: axis(value.improvement),
+    migration_cutover: axis(value.migration_cutover),
+    activation: {
+      ...axis(activation),
+      profile_ref: optionalToken(activation.profile_ref),
+      scope_revision: activation.scope_revision === null ? null : safeCount(activation.scope_revision),
+      safety_bypass_state: safeToken(activation.safety_bypass_state),
+      rollback_eligibility: safeToken(activation.rollback_eligibility),
+      slots: Array.isArray(activation.slots) ? activation.slots.map((item) => ({
+        slot_kind: safeToken(item?.slot_kind),
+        state: safeToken(item?.state),
+        occupant_ref: optionalToken(item?.occupant_ref),
+      })) : [],
+    },
+    capabilities: {
+      ...axis(capabilities),
+      items: Array.isArray(capabilities.items) ? capabilities.items.map(capabilitySummary) : [],
+    },
+    attention_actions: Array.isArray(value.attention_actions) ? value.attention_actions.map(actionSummary) : [],
+  };
+}
+
+function normalizeCanary(value = {}) {
+  const kind = safeToken(value.canary_kind, "none");
+  const authorityCeiling = safeToken(value.authority_ceiling, "none");
+  const activationAuthoritative = safeBoolean(value.activation_authoritative);
+  const diagnosticConflict = kind === "diagnostic" && (
+    authorityCeiling !== "no_promotion_authority" || activationAuthoritative
+  );
+  if (diagnosticConflict) {
+    return {
+      ...unavailableAxis("diagnostic_authority_conflict"),
+      canary_kind: "diagnostic",
+      authority_ceiling: "no_promotion_authority",
+      conclusion_ref: null,
+      activation_authoritative: false,
     };
   }
-
   return {
-    ...{
-      bucket_scores: {},
-      bucket_counts: {},
-      overall: {},
-      bucket_matrix: {},
+    ...axis(value),
+    canary_kind: kind,
+    authority_ceiling: authorityCeiling,
+    conclusion_ref: optionalToken(value.conclusion_ref),
+    activation_authoritative: activationAuthoritative,
+  };
+}
+
+function normalizeCandidate(value = {}) {
+  const disposition = value.disposition && typeof value.disposition === "object" ? value.disposition : {};
+  const monitor = value.monitor && typeof value.monitor === "object" ? value.monitor : {};
+  const diagnostic = value.diagnostic && typeof value.diagnostic === "object" ? value.diagnostic : {};
+  return {
+    ...axis(value),
+    candidate_ref: safeToken(value.candidate_ref),
+    artifact_ref: safeToken(value.artifact_ref),
+    change_kind: safeToken(value.change_kind),
+    target_slot: safeToken(value.target_slot),
+    engine_semantic_id: safeToken(value.engine_semantic_id),
+    authority_ceiling: safeToken(value.authority_ceiling),
+    benefit_claim: safeToken(value.benefit_claim),
+    benefit_state: safeToken(value.benefit_state),
+    risk_tier: safeToken(value.risk_tier),
+    incumbent_profile_ref: safeToken(value.incumbent_profile_ref),
+    successor_profile_ref: optionalToken(value.successor_profile_ref),
+    observed_scope_revision: safeCount(value.observed_scope_revision),
+    lineage: axis(value.lineage),
+    disposition: { ...axis(disposition), value: safeToken(disposition.value, "none") },
+    monitor: {
+      ...axis(monitor),
+      receipt_refs: Array.isArray(monitor.receipt_refs) ? monitor.receipt_refs.map((item) => safeToken(item)) : [],
     },
-    bucket_scores: bucketScores,
-    bucket_counts: bucketCounts,
-    overall: raw?.overall && typeof raw.overall === "object" ? raw.overall : {},
-    bucket_matrix: bucketMatrix,
+    changed_component_count: safeCount(value.changed_component_count),
+    protected_constraint_state: safeToken(value.protected_constraint_state),
+    rule_catalog_ids: Array.isArray(value.rule_catalog_ids) ? value.rule_catalog_ids.map((item) => safeToken(item)) : [],
+    evidence_buckets: Array.isArray(value.evidence_buckets) ? value.evidence_buckets.map(bucketSummary) : [],
+    canary: normalizeCanary(value.canary),
+    diagnostic: {
+      authority_ceiling: safeToken(diagnostic.authority_ceiling, "no_promotion_authority"),
+      labels: safeCodes(diagnostic.labels),
+      reason_codes: safeCodes(diagnostic.reason_codes),
+    },
+    allowed_actions: Array.isArray(value.allowed_actions) ? value.allowed_actions.map(actionSummary) : [],
   };
 }
 
-function normalizeContextState(raw = {}) {
+function unavailableCandidates() {
+  return { axis: unavailableAxis(), disposition_counts: {}, attention_count: 0, items: [] };
+}
+
+function normalizeCandidates(raw, contextId) {
+  const value = baseProjection(raw, "candidates", contextId);
+  if (!value) return unavailableCandidates();
   return {
-    ...DEFAULT_STATE,
-    ...raw,
-    optimization_running: toBool(raw.optimization_running, false),
-    optimization_count: toInt(raw.optimization_count, 0),
-    attempts_total: toInt(raw.attempts_total, 0),
-    attempts_since_optimization: toInt(raw.attempts_since_optimization, 0),
+    axis: axis(value.axis),
+    disposition_counts: safePairs(value.disposition_counts),
+    attention_count: safeCount(value.attention_count),
+    items: Array.isArray(value.items) ? value.items.map(normalizeCandidate) : [],
   };
 }
 
-function normalizeJob(raw = {}) {
+function unavailableEvidenceFixtures() {
   return {
-    job_key: toStringSafe(raw.job_key),
-    context_id: toStringSafe(raw.context_id),
-    objective_id: toStringSafe(raw.objective_id),
-    objective_bucket: toStringSafe(raw.objective_bucket),
-    objective_signature: toStringSafe(raw.objective_signature),
-    status: toStringSafe(raw.status || "pending"),
-    attempts: toInt(raw.attempts, 0),
-    max_retries: toInt(raw.max_retries, 0),
-    created_at: toFloat(raw.created_at, 0),
-    updated_at: toFloat(raw.updated_at, 0),
-    last_error: toStringSafe(raw.last_error),
-    lease_owner: toStringSafe(raw.lease_owner),
-    lease_expires_at: toFloat(raw.lease_expires_at, 0),
-    payload: raw.payload && typeof raw.payload === "object" ? raw.payload : {},
-    result: raw.result && typeof raw.result === "object" ? raw.result : null,
+    evidence: { ...unavailableAxis(), buckets: [] },
+    fixtures: { ...unavailableAxis(), workflow_counts: {}, families: [] },
   };
 }
 
-function clamp01(value) {
-  const n = toFloat(value, 0);
-  return Math.max(0, Math.min(1, n));
+function normalizeEvidenceFixtures(raw, contextId) {
+  const value = baseProjection(raw, "evidence_fixtures", contextId);
+  if (!value) return unavailableEvidenceFixtures();
+  const evidence = value.evidence && typeof value.evidence === "object" ? value.evidence : {};
+  const fixtures = value.fixtures && typeof value.fixtures === "object" ? value.fixtures : {};
+  return {
+    evidence: {
+      ...axis(evidence),
+      buckets: Array.isArray(evidence.buckets) ? evidence.buckets.map(bucketSummary) : [],
+    },
+    fixtures: {
+      ...axis(fixtures),
+      workflow_counts: safePairs(fixtures.workflow_counts),
+      families: Array.isArray(fixtures.families) ? fixtures.families.map((item) => ({
+        ...axis(item),
+        family_ref: safeToken(item?.family_ref),
+        eligibility_state: safeToken(item?.eligibility_state),
+        partition_counts: safePairs(item?.partition_counts),
+        grant_state: safeToken(item?.grant_state),
+      })) : [],
+    },
+  };
 }
 
-function parseContextId() {
-  const fromUrl = new URLSearchParams(window.location.search || "").get("ctxid");
+function unavailablePrivacyMigration() {
+  return {
+    privacy: unavailableAxis(),
+    migration: {
+      ...unavailableAxis(),
+      migration_ref: null,
+      phase: "unavailable",
+      checkpoint_count: 0,
+      disposition_counts: {},
+      key_custody_state: "unavailable",
+      cutover_readiness: "unavailable",
+      recovery_state: "unavailable",
+    },
+    operations: [],
+  };
+}
+
+function normalizePrivacyMigration(raw, contextId) {
+  const value = baseProjection(raw, "privacy_migration", contextId);
+  if (!value) return unavailablePrivacyMigration();
+  const migration = value.migration && typeof value.migration === "object" ? value.migration : {};
+  return {
+    privacy: axis(value.privacy),
+    migration: {
+      ...axis(migration),
+      migration_ref: optionalToken(migration.migration_ref),
+      phase: safeToken(migration.phase),
+      checkpoint_count: safeCount(migration.checkpoint_count),
+      disposition_counts: safePairs(migration.disposition_counts),
+      key_custody_state: safeToken(migration.key_custody_state),
+      cutover_readiness: safeToken(migration.cutover_readiness),
+      recovery_state: safeToken(migration.recovery_state),
+    },
+    operations: Array.isArray(value.operations) ? value.operations.map((item) => ({
+      ...axis(item),
+      operation_ref: safeToken(item?.operation_ref),
+      operation_kind: safeToken(item?.operation_kind),
+      challenge_ref: optionalToken(item?.challenge_ref),
+      receipt_refs: Array.isArray(item?.receipt_refs) ? item.receipt_refs.map((ref) => safeToken(ref)) : [],
+      instruction_code: safeToken(item?.instruction_code),
+      execution_surface: item?.execution_surface === "local_cli_only" ? "local_cli_only" : "unavailable",
+    })) : [],
+  };
+}
+
+function unavailablePolicyCapabilities() {
+  return {
+    policy: {
+      ...unavailableAxis(),
+      policy_ref: null,
+      calibration_state: "unavailable",
+      activation_mode: "unavailable",
+      automatic_authority_state: "unavailable",
+    },
+    capabilities: { ...unavailableAxis(), items: [], dependency_profile_ref: null, dependency_state: "unavailable" },
+    grants: { ...unavailableAxis(), items: [] },
+    budgets: { ...unavailableAxis(), items: [] },
+    local_step_up_instruction_code: "local_authority_unavailable",
+  };
+}
+
+function normalizePolicyCapabilities(raw, contextId) {
+  const value = baseProjection(raw, "policy_capabilities", contextId);
+  if (!value) return unavailablePolicyCapabilities();
+  const policy = value.policy && typeof value.policy === "object" ? value.policy : {};
+  const capabilities = value.capabilities && typeof value.capabilities === "object" ? value.capabilities : {};
+  const grants = value.grants && typeof value.grants === "object" ? value.grants : {};
+  const budgets = value.budgets && typeof value.budgets === "object" ? value.budgets : {};
+  return {
+    policy: {
+      ...axis(policy),
+      policy_ref: optionalToken(policy.policy_ref),
+      calibration_state: safeToken(policy.calibration_state),
+      activation_mode: safeToken(policy.activation_mode),
+      automatic_authority_state: safeToken(policy.automatic_authority_state),
+    },
+    capabilities: {
+      ...axis(capabilities),
+      items: Array.isArray(capabilities.items) ? capabilities.items.map(capabilitySummary) : [],
+      dependency_profile_ref: optionalToken(capabilities.dependency_profile_ref),
+      dependency_state: safeToken(capabilities.dependency_state),
+    },
+    grants: {
+      ...axis(grants),
+      items: Array.isArray(grants.items) ? grants.items.map((item) => ({
+        grant_ref: safeToken(item?.grant_ref),
+        grant_kind: safeToken(item?.grant_kind),
+        state: safeToken(item?.state),
+        authority_ceiling: safeToken(item?.authority_ceiling),
+        expiry_state: safeToken(item?.expiry_state),
+      })) : [],
+    },
+    budgets: {
+      ...axis(budgets),
+      items: Array.isArray(budgets.items) ? budgets.items.map((item) => ({
+        budget_id: safeToken(item?.budget_id),
+        state: safeToken(item?.state),
+        limit_units: safeCount(item?.limit_units),
+        reserved_units: safeCount(item?.reserved_units),
+        consumed_units: safeCount(item?.consumed_units),
+      })) : [],
+    },
+    local_step_up_instruction_code: safeToken(value.local_step_up_instruction_code),
+  };
+}
+
+function unavailableReceiptsAudit() {
+  return { receipts: unavailableAxis(), category_counts: {}, items: [] };
+}
+
+function normalizeReceiptsAudit(raw, contextId) {
+  const value = baseProjection(raw, "receipts_audit", contextId);
+  if (!value) return unavailableReceiptsAudit();
+  return {
+    receipts: axis(value.receipts),
+    category_counts: safePairs(value.category_counts),
+    items: Array.isArray(value.items) ? value.items.map((item) => ({
+      sequence: safeCount(item?.sequence),
+      receipt_ref: safeToken(item?.receipt_ref),
+      category: safeToken(item?.category),
+      action: safeToken(item?.action),
+      state: safeToken(item?.state),
+      observed_at: safeTimestamp(item?.observed_at),
+      related_receipt_refs: Array.isArray(item?.related_receipt_refs)
+        ? item.related_receipt_refs.map((ref) => safeToken(ref))
+        : [],
+    })) : [],
+  };
+}
+
+const NORMALIZERS = Object.freeze({
+  overview: normalizeOverview,
+  candidates: normalizeCandidates,
+  evidence_fixtures: normalizeEvidenceFixtures,
+  privacy_migration: normalizePrivacyMigration,
+  policy_capabilities: normalizePolicyCapabilities,
+  receipts_audit: normalizeReceiptsAudit,
+});
+
+const UNAVAILABLE_PROJECTIONS = Object.freeze({
+  overview: unavailableOverview,
+  candidates: unavailableCandidates,
+  evidence_fixtures: unavailableEvidenceFixtures,
+  privacy_migration: unavailablePrivacyMigration,
+  policy_capabilities: unavailablePolicyCapabilities,
+  receipts_audit: unavailableReceiptsAudit,
+});
+
+function detectContextId() {
+  const query = new URLSearchParams(window.location.search || "").get("ctxid");
   let current = "";
   try {
-    current = typeof window.getContext === "function" ? window.getContext() : "";
+    current = typeof getContext === "function" ? getContext() : "";
   } catch (_) {
     current = "";
   }
-  let available = "";
-  try {
-    const chats = window.Alpine?.store?.("chats");
-    available = chats?.selected || chats?.contexts?.[0]?.id || "";
-  } catch (_) {
-    available = "";
-  }
-  return String(fromUrl || current || available || "");
-}
-
-function withTimeout(promise, timeoutMs, message) {
-  let timeoutId;
-  const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`${message} (${timeoutMs}ms)`)), timeoutMs);
-  });
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  });
-}
-
-function formatError(error) {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  return String(error || "");
-}
-
-function parseDate(value) {
-  if (!value) return null;
-  const parsed = Date.parse(String(value));
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function formatTimeAgo(value) {
-  const parsed = parseDate(value);
-  if (!parsed) return "";
-  const now = Date.now();
-  const deltaMs = Math.max(0, now - parsed);
-  const seconds = Math.floor(deltaMs / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function contextStateFromResult(raw = {}) {
-  if (!raw || typeof raw !== "object") return {};
-  return {
-    objective_signature: toStringSafe(raw.objective_signature),
-    promotion_decision: toStringSafe(raw.promotion_decision),
-    status: toStringSafe(raw.status),
-    reason: toStringSafe(raw.reason),
-  };
-}
-
-function pickLatestResult(contextState = {}, latestJobs = []) {
-  if (contextState.optimization_result && typeof contextState.optimization_result === "object") {
-    return contextState.optimization_result;
-  }
-
-  if (latestJobs.length > 0 && latestJobs[0]?.result && typeof latestJobs[0].result === "object") {
-    return latestJobs[0].result;
-  }
-
-  return {};
-}
-
-function resolveJobStatusLabel(job = {}) {
-  const status = toStringSafe(job.status || "").toLowerCase();
-  if (!status) return "unknown";
-  if (status === "succeeded") return "succeeded";
-  if (status === "running") return "running";
-  if (status === "pending") return "queued";
-  if (status === "failed") return "failed";
-  return status;
+  return String(query || current || "").trim();
 }
 
 export const store = createStore("dspyRlm", {
-  statusLoaded: false,
-  loading: false,
-  actionInFlight: false,
-  runtimeInitialized: false,
-  refreshMs: DEFAULT_REFRESH_SECONDS * 1000,
+  activeView: "overview",
   contextId: "",
-  pluginName: PLUGIN_NAME,
-  pluginPath: API_BASE,
-  lastError: "",
-  statusMessage: "",
-
-  dependencies: {
-    gepa_worker_ready: false,
-    lock_manifest: "requirements-gepa.lock",
-    missing_count: 0,
-    hash_complete: false,
-    setup_mode: "manual_explicit_setup_only",
-  },
-  config: {},
-  contextState: {},
-  traceSummary: { ...DEFAULT_SUMMARY },
-  scheduler: { ...DEFAULT_SCHEDULER },
-  contextSamples: { counts: {}, confidence: {} },
-  objectiveMatrix: {
-    bucket_scores: {},
-    bucket_counts: {},
-    overall: {},
-    bucket_matrix: {},
-  },
-  recentJobs: [],
-  activeJobs: [],
-  optimizationResult: null,
-
-  _refreshTimer: null,
-  _refreshSeq: 0,
-  _statusTimer: null,
-
-  get autoOptimizeEnabled() {
-    return toBool(this.config?.auto_optimize_enabled, false);
+  initialized: false,
+  loading: false,
+  loaded: false,
+  lastErrorCode: "",
+  candidateFilter: "all",
+  receiptFilter: "all",
+  selectedCandidateRef: null,
+  pendingAction: null,
+  projections: {
+    overview: unavailableOverview(),
+    candidates: unavailableCandidates(),
+    evidence_fixtures: unavailableEvidenceFixtures(),
+    privacy_migration: unavailablePrivacyMigration(),
+    policy_capabilities: unavailablePolicyCapabilities(),
+    receipts_audit: unavailableReceiptsAudit(),
   },
 
-  get dependencyClass() {
-    return this.dependencies?.gepa_worker_ready ? "status-badge--ok" : "status-badge--warn";
+  get viewTabs() {
+    return VIEW_IDS.map((id) => ({ id, label: VIEW_DEFINITIONS[id].label }));
   },
 
-  get dependencyStateClass() {
-    return this.dependencyClass;
+  get overview() { return this.projections.overview; },
+  get candidates() { return this.projections.candidates; },
+  get evidenceFixtures() { return this.projections.evidence_fixtures; },
+  get privacyMigration() { return this.projections.privacy_migration; },
+  get policyCapabilities() { return this.projections.policy_capabilities; },
+  get receiptsAudit() { return this.projections.receipts_audit; },
+
+  get filteredCandidates() {
+    const items = this.candidates.items;
+    return this.candidateFilter === "all"
+      ? items
+      : items.filter((item) => item.disposition.value === this.candidateFilter);
   },
 
-  get dependenciesLabel() {
-    if (this.dependencies?.gepa_worker_ready) return "GEPA worker ready";
-    if (!this.dependencies?.hash_complete) return "GEPA worker setup requires refreshed dependency pins";
-    const missing = Math.max(0, toInt(this.dependencies?.missing_count, 0));
-    return missing ? `GEPA worker dependencies missing (${missing})` : "GEPA worker not ready";
+  get selectedCandidate() {
+    const candidates = this.filteredCandidates;
+    return candidates.find((item) => item.candidate_ref === this.selectedCandidateRef) || candidates[0] || null;
   },
 
-  // Retain this alias for extensions that used the older singular label.
-  get dependencyLabel() {
-    return this.dependenciesLabel;
+  get receiptCategories() {
+    return ["all", ...Object.keys(this.receiptsAudit.category_counts)];
   },
 
-  get autoOptimizeLabel() {
-    return toBool(this.autoOptimizeEnabled, false)
-      ? "On"
-      : "Off";
-  },
-
-  get objectiveModeLabel() {
-    return this.optimizationMode;
-  },
-
-  get totalAttempts() {
-    return toStringSafe(toInt(this.contextState?.attempts_total, 0));
-  },
-
-  get attemptsSinceOptimization() {
-    return toStringSafe(toInt(this.contextState?.attempts_since_optimization, 0));
-  },
-
-  get cooldownLabel() {
-    const cooldownHours = toInt(this.config?.optimization_cooldown_hours, 0);
-    const status = this.contextState?.optimization_status || "idle";
-    if (status === "running") {
-      return "running";
-    }
-    if (cooldownHours <= 0) {
-      return "disabled";
-    }
-    const lastOptimizationAt = parseDate(this.contextState?.last_optimization_at);
-    if (!lastOptimizationAt) {
-      return "warm-up";
-    }
-    const elapsedMs = Math.max(0, Date.now() - lastOptimizationAt);
-    const elapsedHours = elapsedMs / 3_600_000;
-    const remaining = Math.max(0, cooldownHours - elapsedHours);
-    if (remaining <= 0.01) {
-      return "ready";
-    }
-    return `${remaining.toFixed(1)} h`;
-  },
-
-  get configuredRefreshLabel() {
-    const refreshSeconds = Math.max(1, toInt(this.config?.status_refresh_seconds, DEFAULT_REFRESH_SECONDS));
-    return `${refreshSeconds}s refresh`;
-  },
-
-  get objectiveReadiness() {
-    return this.readiness;
-  },
-
-  get optimizationStatus() {
-    return toStringSafe(this.contextState?.optimization_status || "idle");
-  },
-
-  get lastGuidance() {
-    return toStringSafe(this.contextState?.last_guidance);
-  },
-
-  get lastGuidanceDate() {
-    const updated = this.contextState?.last_guidance_at;
-    if (!updated) return "never";
-    const formatted = formatTimeAgo(updated);
-    return formatted ? `${formatted} ago` : "never";
-  },
-
-  get optimizationClass() {
-    const status = toStringSafe(this.contextState?.optimization_status).toLowerCase();
-    if (!this.contextState?.optimization_running) {
-      if (status === "success") return "status-badge--ok";
-      if (status === "rejected" || status === "error" || status === "candidate_rejected") return "status-badge--danger";
-      return "status-badge--warn";
-    }
-
-    return "status-badge--running";
-  },
-
-  get optimizationMode() {
-    const prompt = this.config?.prompt_optimization || {};
-    if (toBool(prompt.enabled, false) && prompt.target_mode !== "guidance_overlay") {
-      const target = prompt.target_mode === "assembled_prompt" ? "assembled prompt" : "prompt components";
-      return `GEPA ${target} · ${prompt.activation_mode || "manual"}`;
-    }
-    if (!toBool(this.config?.enable_dspy_optimizer, false)) return "Heuristic mode";
-    return toBool(this.config?.rlm?.enabled, false) ? "GEPA + RLM mode" : "GEPA mode";
-  },
-
-  get statusBanner() {
-    if (!this.contextId) return "Pick a context id to inspect optimization state";
-    if (!this.autoOptimizeEnabled) return "Auto-optimization is currently disabled";
-    return this.readiness.label;
-  },
-
-  get readiness() {
-    if (!this.autoOptimizeEnabled) {
-      return {
-        state: "off",
-        label: "Auto-optimization disabled",
-      };
-    }
-
-    if (this.contextState?.optimization_running) {
-      return {
-        state: "running",
-        label: "Optimization running",
-      };
-    }
-
-    const needed = Math.max(0, toInt(this.config?.optimization_min_samples, 10) - toInt(this.contextState?.attempts_total, 0));
-    if (needed > 0) {
-      return {
-        state: "warming",
-        label: `${needed} more loop samples required before next cycle`,
-      };
-    }
-
-    return {
-      state: "ready",
-      label: "Ready to queue next optimization",
-    };
-  },
-
-  get schedulerMode() {
-    const mode = toStringSafe(this.scheduler?.mode || "local_multiprocess");
-    return mode === "local_multiprocess" ? "Local" : mode.replaceAll("_", " ");
-  },
-
-  get schedulerWorkersLabel() {
-    return `${toInt(this.scheduler?.running_workers, 0)}/${toInt(this.scheduler?.target_workers, 0)}`;
-  },
-
-  get jobCounts() {
-    const jobs = this.scheduler?.jobs || {};
-    return {
-      pending: toInt(jobs.pending, 0),
-      running: toInt(jobs.running, 0),
-      failed: toInt(jobs.failed, 0),
-      succeeded: toInt(jobs.succeeded, 0),
-      queued: toInt(jobs.queued, 0),
-      total: toInt(jobs.pending, 0) + toInt(jobs.running, 0) + toInt(jobs.failed, 0) + toInt(jobs.succeeded, 0) + toInt(jobs.queued, 0),
-    };
-  },
-
-  get schedulerHealth() {
-    return `running ${this.jobCounts.running} · queued ${this.jobCounts.pending} · failed ${this.jobCounts.failed}`;
-  },
-
-  get matrixBuckets() {
-    const bucketMatrix = this.objectiveMatrix?.bucket_matrix || {};
-    return Object.entries(bucketMatrix)
-      .map(([bucket, row]) => ({
-        bucket,
-        rows: toInt(row.rows, 0),
-        overall: clamp01(row.semantic_match),
-        semanticMatch: clamp01(row.semantic_match),
-        commandSafety: clamp01(row.command_safety),
-        executionReliability: clamp01(row.execution_reliability),
-        evidenceRecall: clamp01(row.evidence_recall),
-        evidencePrecision: clamp01(row.evidence_precision),
-        answerQuality: clamp01(row.answer_quality),
-        policyCompliance: clamp01(row.policy_compliance),
-        bucketScore: clamp01((this.objectiveMatrix?.bucket_scores || {})[bucket] || 0),
-      }))
-      .filter((entry) => entry.bucketScore > 0 || entry.rows > 0)
-      .sort((a, b) => b.bucketScore - a.bucketScore);
-  },
-
-  get matrixSummary() {
-    return this.matrixBuckets.map((entry) => ({
-      label: entry.bucket,
-      score: entry.bucketScore,
-      count: entry.rows,
-      scoreLabel: normalizePercent(entry.bucketScore),
-    }));
-  },
-
-  get objectiveSamplesDistribution() {
-    return this.contextSamples?.counts && typeof this.contextSamples.counts === "object"
-      ? this.contextSamples.counts
-      : {};
-  },
-
-  get formattedSamplesByBucket() {
-    return Object.entries(this.objectiveSamplesDistribution)
-      .map(([bucket, count]) => ({ bucket, count: toInt(count, 0) }))
-      .sort((a, b) => b.count - a.count);
-  },
-
-  get lastOptimizationResult() {
-    return this.optimizationResult || this.contextState?.optimization_result || null;
-  },
-
-  get latestRunStatus() {
-    const decision = this.lastOptimizationResult?.promotion_decision || "pending";
-    return {
-      mode: this.lastOptimizationResult?.mode || "idle",
-      status: this.lastOptimizationResult?.status || "not_run",
-      decision,
-      reason: this.lastOptimizationResult?.reason || this.lastOptimizationResult?.optimization_status || "",
-      version: this.lastOptimizationResult?.guidance_version || "",
-      startedAt: this.lastOptimizationResult?.started_at || this.contextState?.last_optimization_at || "",
-    };
-  },
-
-  get topTools() {
-    const tools = coerceArray(this.traceSummary?.top_tools);
-    const maxCount = tools.reduce((max, item) => Math.max(max, toInt(item?.count, 0)), 0) || 1;
-    return tools.map((item) => ({
-      tool: toStringSafe(item.tool || item.name || "unknown"),
-      count: toInt(item.count, 0),
-      barWidth: normalizePercent(toInt(item.count, 0) / maxCount),
-    }));
-  },
-
-  get statusRows() {
-    return coerceArray(this.recentJobs).map(normalizeJob);
-  },
-
-  hasRecentEvents() {
-    return coerceArray(this.topTools).length > 0;
-  },
-
-  latestToolRows() {
-    return this.topTools.map((item) => ({
-      toolName: toStringSafe(item.tool),
-      count: toInt(item.count, 0),
-      width: item.barWidth,
-    }));
+  get filteredReceipts() {
+    return this.receiptFilter === "all"
+      ? this.receiptsAudit.items
+      : this.receiptsAudit.items.filter((item) => item.category === this.receiptFilter);
   },
 
   async initRuntime() {
-    if (this.runtimeInitialized) return;
-    this.runtimeInitialized = true;
-    this.contextId = parseContextId();
-    await this.refreshStatus({ force: true, suppressError: true });
-    this._scheduleRefresh();
+    if (this.initialized) return;
+    this.initialized = true;
+    this.contextId = detectContextId();
+    await this.refreshAll();
   },
 
-  _clearStatusMessage() {
-    clearTimeout(this._statusTimer);
-    this._statusTimer = setTimeout(() => {
-      this.statusMessage = "";
-    }, 3500);
+  setActiveView(viewId) {
+    if (VIEW_DEFINITIONS[viewId]) this.activeView = viewId;
   },
 
-  setStatusMessage(message) {
-    this.statusMessage = String(message || "");
-    clearTimeout(this._statusTimer);
-    if (!this.statusMessage) return;
-    this._clearStatusMessage();
+  setContextId(value) {
+    const next = String(value?.target ? value.target.value : value || "").trim();
+    if (!next) {
+      this.lastErrorCode = "context_required";
+      return;
+    }
+    this.contextId = next;
+    this.selectedCandidateRef = null;
+    this.pendingAction = null;
+    void this.refreshAll();
   },
 
-  async refreshStatus({ force = false, suppressError = false } = {}) {
-    if (!force && this.loading) return;
-    this.lastError = "";
-    if (!this.contextId) this.contextId = parseContextId();
+  async refreshAll() {
+    if (this.loading) return;
     if (!this.contextId) {
-      this.loading = false;
-      if (!suppressError) this.lastError = "Create or select a chat context to inspect optimization state";
+      this.lastErrorCode = "context_required";
+      this.loaded = true;
       return;
     }
-    if (!force) this.loading = true;
-
-    try {
-      const payload = await withTimeout(
-        callJsonApi(`${API_BASE}/status`, {
-          context_id: String(this.contextId || "").trim(),
-        }),
-        STATUS_REQUEST_TIMEOUT_MS,
-        "Status request timed out",
-      );
-
-      if (payload?.context_id) {
-        this.contextId = String(payload.context_id || this.contextId || "");
-      }
-
-      this.config = normalizeConfig(payload?.config || {});
-      this.dependencies = {
-        gepa_worker_ready: toBool(payload?.dependencies?.gepa_worker_ready, false),
-        lock_manifest: toStringSafe(payload?.dependencies?.lock_manifest || "requirements-gepa.lock"),
-        missing_count: Math.max(0, toInt(payload?.dependencies?.missing_count, 0)),
-        hash_complete: toBool(payload?.dependencies?.hash_complete, false),
-        setup_mode: toStringSafe(payload?.dependencies?.setup_mode || "isolated_worker_venv"),
-      };
-      this.contextState = normalizeContextState(payload?.context_state || {});
-      this.traceSummary = normalizeTraceSummary(payload?.trace_summary || {});
-      this.scheduler = normalizeScheduler(payload?.scheduler || {});
-      this.contextSamples = normalizeContextSamples(payload?.context_samples || {});
-
-      this.objectiveMatrix = normalizeMatrix(this.contextState?.optimization_result?.matrix_scores || {});
-
-      this.recentJobs = coerceArray(payload?.recent_jobs || this.scheduler?.recent_jobs || []);
-      this.activeJobs = coerceArray(this.scheduler?.running_jobs || []).map(normalizeJob);
-      this.recentJobs = this.recentJobs.map((row) => ({
-        ...normalizeJob(row),
-        status: resolveJobStatusLabel(row),
-      }));
-
-      this.optimizationResult = pickLatestResult(this.contextState, this.recentJobs);
-      this.statusLoaded = true;
-
-      const refreshSeconds = Math.max(MIN_REFRESH_SECONDS, toInt(this.config?.status_refresh_seconds, DEFAULT_REFRESH_SECONDS));
-      this.refreshMs = refreshSeconds * 1000;
-      this._scheduleRefresh();
-    } catch (error) {
-      if (!suppressError) {
-        this.lastError = formatError(error);
-      } else {
-        this.lastError = this.lastError || formatError(error);
-      }
-      this.statusLoaded = this.statusLoaded || force;
-    } finally {
-      this.loading = false;
-    }
-  },
-
-  _scheduleRefresh() {
-    if (this._refreshTimer) {
-      clearInterval(this._refreshTimer);
-      this._refreshTimer = null;
-    }
-
-    const seq = ++this._refreshSeq;
-    const intervalMs = Math.max(MIN_REFRESH_SECONDS * 1000, this.refreshMs || DEFAULT_REFRESH_SECONDS * 1000);
-    this._refreshTimer = setInterval(() => {
-      if (seq !== this._refreshSeq) return;
-      void this.refreshStatus();
-    }, intervalMs);
-  },
-
-  stopAutoRefresh() {
-    if (this._refreshTimer) {
-      clearInterval(this._refreshTimer);
-      this._refreshTimer = null;
-    }
-    this._refreshSeq += 1;
-  },
-
-  async openConfig() {
-    const { store } = await import("/components/plugins/plugin-settings-store.js");
-    await store.openConfig(PLUGIN_NAME);
-  },
-
-  setContextId(eventOrValue) {
-    const nextId = toStringSafe(eventOrValue?.target ? eventOrValue.target.value : eventOrValue || "").trim();
-    if (!nextId) {
-      this.lastError = "Enter a context id to load status";
-      return;
-    }
-    this.contextId = nextId;
-    this.lastError = "";
-    void this.refreshStatus({ force: true });
-  },
-
-  async runOptimize() {
-    return this._runOptimize(false);
-  },
-
-  async runOptimizeSync() {
-    return this._runOptimize(true);
-  },
-
-  async _runOptimize(runSync = false) {
-    if (!this.contextId) {
-      this.lastError = "Context id is required";
-      return;
-    }
-
-    this.lastError = "";
-    this.actionInFlight = true;
-
-    try {
-      const response = await callJsonApi(`${API_BASE}/optimize`, {
-        context_id: String(this.contextId),
-        force: true,
-        run_sync: runSync,
+    this.loading = true;
+    this.lastErrorCode = "";
+    const results = await Promise.allSettled(VIEW_IDS.map(async (viewId) => {
+      const payload = await callJsonApi(`${API_BASE}/operator_projection`, {
+        context_id: this.contextId,
+        view: viewId,
       });
-
-      const scheduler = response?.scheduler || {};
-      const result = response?.result || response?.optimization_result || this.contextState?.optimization_result || {};
-      this.optimizationResult = result;
-      this.setStatusMessage(`Optimization ${runSync ? "sync " : ""}${scheduler?.dispatched ? "dispatched" : "queued"}`);
-      await this.refreshStatus({ force: true });
-      return result;
-    } catch (error) {
-      this.lastError = formatError(error);
-    } finally {
-      this.actionInFlight = false;
+      return [viewId, NORMALIZERS[viewId](payload, this.contextId)];
+    }));
+    let unavailableCount = 0;
+    results.forEach((result, index) => {
+      const viewId = VIEW_IDS[index];
+      if (result.status === "fulfilled") {
+        const [, projection] = result.value;
+        this.projections[viewId] = projection;
+      } else {
+        unavailableCount += 1;
+        this.projections[viewId] = UNAVAILABLE_PROJECTIONS[viewId]();
+      }
+    });
+    if (unavailableCount) this.lastErrorCode = "operator_projection_unavailable";
+    if (unavailableCount === VIEW_IDS.length) {
+      this.projections = Object.fromEntries(
+        VIEW_IDS.map((viewId) => [viewId, UNAVAILABLE_PROJECTIONS[viewId]()]),
+      );
     }
-
-    return null;
+    this.loaded = true;
+    this.loading = false;
   },
 
-  statusClassFromValue(value) {
-    const normalized = toStringSafe(value || "").toLowerCase();
-    if (["success", "ok", "promoted", "running", "active", "pass"].includes(normalized)) {
-      return "status-badge--ok";
-    }
-    if (["failed", "error", "rejected", "reject", "danger"].includes(normalized)) {
-      return "status-badge--danger";
-    }
-    return "status-badge--warn";
+  actionFor(candidate, actionName) {
+    if (!candidate || !Array.isArray(candidate.allowed_actions)) return null;
+    return candidate.allowed_actions.find((action) => action.action === actionName) || null;
   },
 
-  formatPercent(value) {
-    return normalizePercent(value);
+  actionAllowed(candidate, actionName) {
+    const action = this.actionFor(candidate, actionName);
+    return Boolean(action && action.state === "eligible");
   },
 
-  formatTimeAgo(value) {
-    return formatTimeAgo(value);
+  actionReasonCodes(candidate, actionName) {
+    return this.actionFor(candidate, actionName)?.reason_codes || ["action_not_authorized"];
   },
 
-  formatToolWidth(count, total) {
-    const denominator = Math.max(1, toInt(total, 1));
-    return `${Math.round((toInt(count, 0) / denominator) * 100)}%`;
+  stageCandidateAction(candidate, actionName) {
+    if (!this.actionAllowed(candidate, actionName)) return;
+    this.pendingAction = {
+      action: actionName,
+      candidate_ref: candidate.candidate_ref,
+      incumbent_profile_ref: candidate.incumbent_profile_ref,
+      successor_profile_ref: candidate.successor_profile_ref,
+      expected_scope_revision: candidate.observed_scope_revision,
+    };
   },
 
-  jobStatusClass(status = "") {
-    const normalized = String(status || "").toLowerCase();
-    if (normalized === "running") return "status-badge--running";
-    if (normalized === "failed") return "status-badge--danger";
-    if (normalized === "succeeded" || normalized === "success") return "status-badge--ok";
-    return "status-badge--warn";
+  clearPendingAction() {
+    this.pendingAction = null;
   },
 
-  matrixScoreClass(score) {
-    const normalized = toFloat(score, 0);
-    if (normalized >= 0.8) return "status-badge--ok";
-    if (normalized >= 0.6) return "status-badge--warn";
-    return "status-badge--danger";
+  axisClass(value) {
+    const state = safeToken(value?.state);
+    if (["active", "completed", "current", "eligible", "passed", "promotion_ready", "ready"].includes(state)) return "is-ok";
+    if (["blocked", "corrupt", "failed", "ineligible", "rejected", "revoked"].includes(state)) return "is-danger";
+    return "is-warn";
+  },
+
+  observedLabel(value) {
+    return safeTimestamp(value) || "not_observed";
+  },
+
+  reasonLabel(values) {
+    const codes = safeCodes(values);
+    return codes.length ? codes.join(" · ") : "no_reason_code";
   },
 });

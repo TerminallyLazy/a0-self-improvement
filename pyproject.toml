@@ -1,0 +1,24 @@
+[project]
+name = "a0-self-improvement"
+version = "1.0.0"
+description = "Standalone source and test metadata for the A0 Self-Improvement Agent Zero plugin"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+  "PyYAML>=6,<7",
+  "pytest>=8,<10",
+  "pytest-asyncio>=0.24,<2",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra"
+testpaths = ["tests"]
+asyncio_mode = "strict"

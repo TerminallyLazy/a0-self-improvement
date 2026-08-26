@@ -1,0 +1,3 @@
+# Local-only Privacy Quarantine migration environment. Never install this into
+# Agent Zero's framework interpreter or the normal optimization worker.
+cryptography==50.0.0
