@@ -9,6 +9,7 @@ import yaml
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_PYTHON_RANGE = ">=3.12,<3.15"
 EXPECTED_TEST_DEPENDENCIES = {
+    "Flask==3.0.3",
     "PyYAML>=6,<7",
     "pytest>=8,<10",
     "pytest-asyncio>=0.24,<2",
