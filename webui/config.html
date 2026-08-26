@@ -5,6 +5,7 @@
   <body>
     <div
       x-data="{
+        selectedPreset: 'balanced',
         _ensureObject(value, fallback = {}) {
           return typeof value === 'object' && value !== null && !Array.isArray(value) ? value : { ...fallback };
         },
@@ -21,6 +22,8 @@
           if (typeof config !== 'object' || config === null) {
             config = {};
           }
+
+          this.selectedPreset = level;
 
           const matrix = this._ensureSection(config, 'matrix', {
             version: '2.0',
@@ -744,9 +747,9 @@
           </header>
 
           <section class="dspy-presets">
-            <button type="button" class="dspy-btn" @click="applyPreset('safe')">Safe</button>
-            <button type="button" class="dspy-btn is-strong" @click="applyPreset('balanced')">Balanced</button>
-            <button type="button" class="dspy-btn" @click="applyPreset('aggressive')">Aggressive</button>
+            <button type="button" class="dspy-btn" :class="{ 'is-strong': selectedPreset === 'safe' }" @click="applyPreset('safe')">Safe</button>
+            <button type="button" class="dspy-btn" :class="{ 'is-strong': selectedPreset === 'balanced' }" @click="applyPreset('balanced')">Balanced</button>
+            <button type="button" class="dspy-btn" :class="{ 'is-strong': selectedPreset === 'aggressive' }" @click="applyPreset('aggressive')">Aggressive</button>
           </section>
 
           <section class="dspy-grid">

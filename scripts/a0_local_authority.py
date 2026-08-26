@@ -86,12 +86,24 @@ from helpers.v3.quarantine import (  # noqa: E402
     encrypt_quarantine,
 )
 from helpers.v3.registry import V3_REGISTRY  # noqa: E402
-from helpers.v3.repository import IntegrityFailure, V3Reader, V3Repository  # noqa: E402
+from helpers.v3.public_projection import project_public_status  # noqa: E402
+from helpers.v3.repository import (  # noqa: E402
+    IntegrityFailure,
+    StoreNotFoundError,
+    V3Reader,
+    V3Repository,
+)
 from helpers.v3.schemas import canonical_json, canonical_loads  # noqa: E402
 from helpers.v3.store_authority import StoreAuthorityManifestStore  # noqa: E402
+from helpers.v3.store_selection import (  # noqa: E402
+    open_runtime_reader,
+    open_runtime_repository,
+    resolve_runtime_store,
+)
 
 
 MIGRATION_CUTOVER_CONFIRMATION = "CONFIRM_A0_V3_STORE_AUTHORITY_CUTOVER"
+PROJECT_GENESIS_CONFIRMATION = "BOOTSTRAP_PROJECT_GENESIS"
 
 
 class LocalProtocolError(RuntimeError):
@@ -121,6 +133,23 @@ def _strict_boolean(value: str) -> bool:
     if value == "false":
         return False
     raise argparse.ArgumentTypeError("boolean values must be exactly true or false")
+
+
+def _safe_ref(value: Any, field: str) -> str:
+    first = frozenset(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    )
+    allowed = frozenset(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-"
+    )
+    if (
+        type(value) is not str
+        or not 1 <= len(value) <= 128
+        or value[0] not in first
+        or any(character not in allowed for character in value)
+    ):
+        raise LocalProtocolError(f"{field} must be a bounded opaque reference")
+    return value
 
 
 def _positive_integer(value: str) -> int:
@@ -397,6 +426,257 @@ def command_genesis(args: argparse.Namespace) -> dict[str, Any]:
         "scope_revision": result.scope.scope_revision,
         "activation_receipt_ref": result.activation_receipt.record_id,
         "mutation_receipt_ref": result.mutation_receipt.record_id,
+    }
+
+
+def command_readiness_inspect(args: argparse.Namespace) -> dict[str, Any]:
+    """Inspect selected-store and context Genesis readiness without writing."""
+
+    store = _absolute(args.store)
+    manifest = _absolute(args.manifest)
+    selection = resolve_runtime_store(
+        pre_cutover_path=store,
+        manifest_path=manifest,
+    )
+    authority = {
+        "source": selection.source,
+        "manifest_revision": (
+            selection.manifest.revision if selection.manifest is not None else 0
+        ),
+        "generation_ref": (
+            selection.manifest.generation_ref
+            if selection.manifest is not None
+            else "pre_cutover"
+        ),
+    }
+    try:
+        with open_runtime_reader(
+            pre_cutover_path=store,
+            manifest_path=manifest,
+        ) as reader:
+            status = project_public_status(
+                context_ref=args.context,
+                enabled=True,
+                reader=reader,
+            )
+    except StoreNotFoundError:
+        return {
+            "schema": "a0.local-readiness.v1",
+            "state": "uninitialized",
+            "context_ref": args.context,
+            "store_authority": authority,
+            "activation_scope": {
+                "state": "uninitialized",
+                "reason_codes": ["safe_store_missing"],
+            },
+        }
+
+    return {
+        "schema": "a0.local-readiness.v1",
+        "state": status["plugin_state"],
+        "context_ref": status["context_ref"],
+        "store_authority": authority,
+        "activation_scope": status["activation_scope"],
+    }
+
+
+def _project_context_refs(chats_dir: Path, project_ref: str) -> tuple[str, ...]:
+    _safe_ref(project_ref, "project")
+    try:
+        metadata = chats_dir.lstat()
+    except OSError as exc:
+        raise LocalProtocolError("chat metadata directory is unavailable") from exc
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+    ):
+        raise LocalProtocolError(
+            "chat metadata directory must be a current-owner directory"
+        )
+
+    contexts: list[str] = []
+    try:
+        chat_files = tuple(chats_dir.glob("*/chat.json"))
+        for chat_file in chat_files:
+            _owned_existing_file(chat_file, "chat metadata")
+            payload = json.loads(chat_file.read_text(encoding="utf-8"))
+            data = payload.get("data") if type(payload) is dict else None
+            if type(data) is not dict or data.get("project") != project_ref:
+                continue
+            context_ref = _safe_ref(payload.get("id"), "chat context")
+            if chat_file.parent.name != context_ref:
+                raise LocalProtocolError("chat context identity does not match custody")
+            contexts.append(context_ref)
+    except (OSError, ValueError) as exc:
+        raise LocalProtocolError("project chat metadata is unavailable") from exc
+    return tuple(sorted(set(contexts)))
+
+
+def command_project_readiness_inspect(args: argparse.Namespace) -> dict[str, Any]:
+    """Verify every currently enrolled chat context for one explicit project."""
+
+    store = _absolute(args.store)
+    manifest = _absolute(args.manifest)
+    contexts = _project_context_refs(_absolute(args.chats_dir), args.project)
+    selection = resolve_runtime_store(
+        pre_cutover_path=store,
+        manifest_path=manifest,
+    )
+    authority = {
+        "source": selection.source,
+        "manifest_revision": (
+            selection.manifest.revision if selection.manifest is not None else 0
+        ),
+        "generation_ref": (
+            selection.manifest.generation_ref
+            if selection.manifest is not None
+            else "pre_cutover"
+        ),
+    }
+    missing = list(contexts)
+    try:
+        with open_runtime_reader(
+            pre_cutover_path=store,
+            manifest_path=manifest,
+        ) as reader:
+            missing = [
+                context_ref
+                for context_ref in contexts
+                if project_public_status(
+                    context_ref=context_ref,
+                    enabled=True,
+                    reader=reader,
+                )["plugin_state"]
+                != "ready"
+            ]
+    except StoreNotFoundError:
+        pass
+
+    ready_count = len(contexts) - len(missing)
+    return {
+        "schema": "a0.project-readiness.v1",
+        "state": "ready" if contexts and not missing else "incomplete",
+        "project_ref": args.project,
+        "context_count": len(contexts),
+        "ready_count": ready_count,
+        "missing_context_refs": missing,
+        "store_authority": authority,
+    }
+
+
+def command_project_genesis(args: argparse.Namespace) -> dict[str, Any]:
+    """Explicitly initialize every missing context in one Agent Zero project."""
+
+    if args.confirm != PROJECT_GENESIS_CONFIRMATION:
+        raise LocalProtocolError("explicit project Genesis confirmation is required")
+    contexts = _project_context_refs(_absolute(args.chats_dir), args.project)
+    if not contexts:
+        raise LocalProtocolError("project has no discoverable chat contexts")
+
+    store = _absolute(args.store)
+    manifest = _absolute(args.manifest)
+    grant_dir = _absolute(args.grant_dir)
+    try:
+        grant_dir_metadata = grant_dir.lstat()
+    except OSError as exc:
+        raise LocalProtocolError("grant directory is unavailable") from exc
+    if (
+        stat.S_ISLNK(grant_dir_metadata.st_mode)
+        or not stat.S_ISDIR(grant_dir_metadata.st_mode)
+        or grant_dir_metadata.st_uid != os.geteuid()
+        or stat.S_IMODE(grant_dir_metadata.st_mode) != 0o700
+    ):
+        raise LocalProtocolError("grant directory must be current-owner 0700")
+
+    profile = IssuerProfile.from_record(_read_json(_absolute(args.profile)))
+    opaque_key = _load_opaque_key(_absolute(args.opaque_key))
+    secret = _absolute(args.secret)
+    now = _utc(args.now)
+    expires_at = _utc(args.authority_expires_at)
+    if expires_at <= now:
+        raise LocalProtocolError("project Genesis authority must be unexpired")
+    idempotency_prefix = _safe_ref(args.idempotency_prefix, "idempotency prefix")
+    nonce_prefix = _safe_ref(args.session_nonce_prefix, "session nonce prefix")
+
+    if args.create_store:
+        if StoreAuthorityManifestStore(manifest).read() is not None:
+            raise LocalProtocolError("cannot create a pre-cutover store after cutover")
+        repository_context = V3Repository.create(store, registry=V3_REGISTRY)
+    else:
+        repository_context = open_runtime_repository(
+            pre_cutover_path=store,
+            manifest_path=manifest,
+        )
+
+    initialized_contexts: list[str] = []
+    receipt_refs: list[str] = []
+    with repository_context as repository:
+        for context_ref in contexts:
+            if repository.get_activation_scope(context_ref) is not None:
+                continue
+            target_ref = _safe_ref(
+                f"activation_scope_{context_ref}", "activation target"
+            )
+            idempotency_key = _safe_ref(
+                f"{idempotency_prefix}:{context_ref}", "idempotency key"
+            )
+            session_nonce = _safe_ref(
+                f"{nonce_prefix}:{context_ref}", "session nonce"
+            )
+            command = GenesisCommand(
+                subject_ref=args.subject,
+                context_ref=context_ref,
+                target_ref=target_ref,
+                idempotency_key=idempotency_key,
+                session_nonce=session_nonce,
+                authority_expires_at=expires_at,
+                expected_revision=0,
+                reason_code=args.reason_code,
+            )
+            envelope = issue_grant(
+                secret,
+                profile,
+                GrantRequest(
+                    authority_class=AuthorityClass.OPERATOR_AUTHORITY_GRANT.value,
+                    issuer_id=profile.issuer_id,
+                    key_epoch=profile.key_epoch,
+                    subject_ref=args.subject,
+                    context_ref=context_ref,
+                    action=AuthorityAction.INITIALIZE_GENESIS.value,
+                    purpose=AuthorityPurpose.GENESIS.value,
+                    target_ref=target_ref,
+                    target_revision=0,
+                    issued_at=now,
+                    expires_at=expires_at,
+                    idempotency_key_digest=digest_idempotency_key(idempotency_key),
+                    session_nonce=session_nonce,
+                ),
+            )
+            grant_ref = envelope["payload"]["grant_id"]
+            _write_new(grant_dir / f"{grant_ref}.json", canonical_json(envelope))
+            result = initialize_genesis(
+                repository,
+                command=command,
+                authority_envelope=envelope,
+                authority_secret_path=secret,
+                issuer_profile=profile,
+                opaque_key=opaque_key,
+                opaque_key_epoch=args.opaque_key_epoch,
+                now=now,
+                revocations=(),
+            )
+            initialized_contexts.append(context_ref)
+            receipt_refs.append(result.activation_receipt.record_id)
+
+    return {
+        "schema": "a0.project-genesis.v1",
+        "state": "ready",
+        "project_ref": args.project,
+        "context_count": len(contexts),
+        "initialized_context_refs": initialized_contexts,
+        "already_ready_count": len(contexts) - len(initialized_contexts),
+        "activation_receipt_refs": receipt_refs,
     }
 
 
@@ -1597,6 +1877,43 @@ def build_parser() -> argparse.ArgumentParser:
     genesis.add_argument("--create-store", action="store_true")
     genesis.add_argument("--revocation", action="append", default=[])
     genesis.set_defaults(handler=command_genesis)
+
+    readiness = commands.add_parser("readiness-inspect")
+    for name in ("store", "manifest", "context"):
+        readiness.add_argument(f"--{name}", required=True)
+    readiness.set_defaults(handler=command_readiness_inspect)
+
+    project_readiness = commands.add_parser("project-readiness-inspect")
+    for name in ("store", "manifest", "chats-dir", "project"):
+        project_readiness.add_argument(f"--{name}", required=True)
+    project_readiness.set_defaults(handler=command_project_readiness_inspect)
+
+    project_genesis = commands.add_parser("project-genesis")
+    for name in (
+        "store",
+        "manifest",
+        "chats-dir",
+        "project",
+        "secret",
+        "profile",
+        "opaque-key",
+        "opaque-key-epoch",
+        "grant-dir",
+        "subject",
+        "idempotency-prefix",
+        "session-nonce-prefix",
+        "authority-expires-at",
+        "now",
+        "confirm",
+    ):
+        project_genesis.add_argument(f"--{name}", required=True)
+    project_genesis.add_argument(
+        "--reason-code",
+        choices=["operator_requested", "recovery_requested"],
+        default="operator_requested",
+    )
+    project_genesis.add_argument("--create-store", action="store_true")
+    project_genesis.set_defaults(handler=command_project_genesis)
 
     migration_preflight = commands.add_parser("migration-preflight")
     _add_migration_arguments(migration_preflight)

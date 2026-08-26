@@ -103,4 +103,48 @@ python scripts/a0_local_authority.py --help
 
 Bootstrap the issuer and a separate opaque-reference key, issue an exact context/action-scoped grant, then run `genesis --create-store`. Genesis atomically writes the inert two-slot Null Activation Profile, immutable receipts, command ledger entry, event, and revision-zero scope. Grant inspection, revocation, policy-calibration approval/withdrawal/inspection, migration preflight/start/resume/confirm-cutover/inspection, and Privacy Quarantine export/waiver/deletion-challenge/deletion-begin/deletion-resume/inspection are also local-only. Migration start/resume stop at `awaiting_cutover`; only the explicit confirmation command may CAS the Store Authority Manifest. Quarantine deletion begins by atomically consuming the exact challenge and persisting the deletion intent, then resumes by revalidating the grant and durable intent before unlinking the wrapped key ahead of ciphertext. Inspection makes no physical-overwrite claim. All custody and state paths must be absolute; the command opens no network listener and returns only content-free references.
 
+Genesis is context-scoped. Creating the store and initializing one chat does not initialize another chat. Verify the exact selected context with the read-only readiness command:
+
+```bash
+python scripts/a0_local_authority.py readiness-inspect \
+  --store /a0/usr/plugins/dspy_rlm/state/dspy_rlm_v3.sqlite \
+  --manifest /a0/usr/plugins/dspy_rlm/state/store-authority-manifest.json \
+  --context YOUR_CONTEXT_ID
+```
+
+`"state":"ready"` means the command opened the runtime-selected store in read-only/query-only mode, verified any Store Authority Manifest and migration receipt binding, and found a valid Activation Scope and two-slot Activation Profile for that exact context. `safe_store_missing` means the pre-cutover store does not exist. `activation_scope_missing` means the store is valid but that context still requires an explicitly granted Genesis command. Any other command failure is fail-closed; do not enable improvement until the underlying authority or store-custody problem is resolved.
+
+Parallel agents should be enrolled and checked at the Agent Zero project boundary, not across unrelated chats. Project inspection reads only each chat's context ID and project identifier; it does not read or retain chat content:
+
+```bash
+python scripts/a0_local_authority.py project-readiness-inspect \
+  --store /a0/usr/plugins/dspy_rlm/state/dspy_rlm_v3.sqlite \
+  --manifest /a0/usr/plugins/dspy_rlm/state/store-authority-manifest.json \
+  --chats-dir /a0/usr/chats \
+  --project YOUR_PROJECT_ID
+```
+
+The result is ready only when every currently discovered context in that project has its own valid Activation Scope. Enroll all missing contexts in one explicit local operation with `project-genesis`; the grant directory must already exist and remain operator-only:
+
+```bash
+python scripts/a0_local_authority.py project-genesis \
+  --store /a0/usr/plugins/dspy_rlm/state/dspy_rlm_v3.sqlite \
+  --manifest /a0/usr/plugins/dspy_rlm/state/store-authority-manifest.json \
+  --chats-dir /a0/usr/chats \
+  --project YOUR_PROJECT_ID \
+  --secret /a0/usr/plugins/dspy_rlm/state/authority/issuer-root.secret \
+  --profile /a0/usr/plugins/dspy_rlm/state/authority/issuer-profile.json \
+  --opaque-key /a0/usr/plugins/dspy_rlm/state/authority/opaque-reference.key \
+  --opaque-key-epoch YOUR_OPAQUE_KEY_EPOCH \
+  --grant-dir /a0/usr/plugins/dspy_rlm/state/authority/project-grants \
+  --subject YOUR_OPERATOR_REF \
+  --idempotency-prefix YOUR_PROJECT_GENESIS_KEY \
+  --session-nonce-prefix YOUR_PROJECT_SESSION_NONCE \
+  --authority-expires-at YOUR_ISO_8601_EXPIRY \
+  --now YOUR_ISO_8601_NOW \
+  --confirm BOOTSTRAP_PROJECT_GENESIS
+```
+
+Add `--create-store` only for the first pre-cutover initialization. The command skips contexts that already have an Activation Scope, issues and persists one exact grant for every missing context, and returns only context and receipt references. Re-run `project-readiness-inspect` after adding parallel chats. Activation, commands, receipts, and rollback remain context-bound so one parallel agent cannot silently mutate another.
+
 Privacy Quarantine cryptography is pinned separately in `requirements-migration.lock`. It belongs only in the local migration environment; it is intentionally absent from both Agent Zero's framework interpreter and the normal DSPy/GEPA worker environment.

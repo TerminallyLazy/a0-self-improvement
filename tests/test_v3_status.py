@@ -1,9 +1,11 @@
 """Slice 1 acceptance tests for the pure, content-free public status path."""
 from __future__ import annotations
 
+import json
 import multiprocessing.process
 from pathlib import Path
 import subprocess
+import sys
 import threading
 from types import SimpleNamespace
 from typing import Any
@@ -20,6 +22,7 @@ from usr.plugins.dspy_rlm.helpers.v3.artifacts import (
 from usr.plugins.dspy_rlm.helpers.v3.repository import V3Repository
 
 
+_CLI = Path(__file__).resolve().parents[1] / "scripts" / "a0_local_authority.py"
 _ROOT_KEYS = {
     "schema",
     "plugin",
@@ -49,6 +52,25 @@ _INERT_AXES = {
     "recent_receipts",
 }
 _AXIS_KEYS = {"state", "observed_at", "freshness", "reason_codes"}
+
+
+def _run_local_cli(*arguments: str | Path) -> dict[str, Any]:
+    completed = subprocess.run(
+        [sys.executable, str(_CLI), *(str(value) for value in arguments)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def _write_project_chat(chats: Path, context_ref: str, project_ref: str) -> None:
+    chat_dir = chats / context_ref
+    chat_dir.mkdir(parents=True)
+    (chat_dir / "chat.json").write_text(
+        json.dumps({"id": context_ref, "data": {"project": project_ref}}),
+        encoding="utf-8",
+    )
 
 
 def _snapshot(root: Path) -> dict[str, tuple[str, int, int]]:
@@ -278,3 +300,154 @@ async def test_disabled_status_remains_inspectable_without_hiding_activation(
     assert first["activation_scope"]["state"] == "active"
     assert first["ordinary_runtime_state"] == "unaffected"
     _assert_strict_public_shape(first)
+
+
+def test_local_readiness_inspection_distinguishes_store_from_context_genesis(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "state" / "dspy_rlm_v3.sqlite"
+    manifest = tmp_path / "state" / "store-authority-manifest.json"
+    _create_ready_store(store)
+
+    command = [
+        "readiness-inspect",
+        "--store",
+        str(store),
+        "--manifest",
+        str(manifest),
+        "--context",
+    ]
+    ready = _run_local_cli(*command, "context-1")
+    missing_context = _run_local_cli(*command, "context-2")
+
+    assert ready["state"] == "ready"
+    assert ready["store_authority"] == {
+        "source": "pre_cutover",
+        "manifest_revision": 0,
+        "generation_ref": "pre_cutover",
+    }
+    assert ready["activation_scope"]["scope_revision"] == 0
+    assert missing_context["state"] == "uninitialized"
+    assert missing_context["activation_scope"]["reason_codes"] == [
+        "activation_scope_missing"
+    ]
+
+
+def test_project_readiness_reports_only_missing_contexts_in_selected_project(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "state" / "dspy_rlm_v3.sqlite"
+    manifest = tmp_path / "state" / "store-authority-manifest.json"
+    chats = tmp_path / "chats"
+    _create_ready_store(store)
+    for context_ref, project_ref in (
+        ("context-1", "project-1"),
+        ("context-2", "project-1"),
+        ("context-3", "project-2"),
+    ):
+        _write_project_chat(chats, context_ref, project_ref)
+
+    result = _run_local_cli(
+        "project-readiness-inspect",
+        "--store",
+        store,
+        "--manifest",
+        manifest,
+        "--chats-dir",
+        chats,
+        "--project",
+        "project-1",
+    )
+
+    assert result["state"] == "incomplete"
+    assert result["context_count"] == 2
+    assert result["ready_count"] == 1
+    assert result["missing_context_refs"] == ["context-2"]
+
+
+def test_project_genesis_initializes_every_context_in_only_the_named_project(
+    tmp_path: Path,
+) -> None:
+    state = tmp_path / "state"
+    authority = state / "authority"
+    grants = authority / "project-grants"
+    chats = tmp_path / "chats"
+    state.mkdir()
+    authority.mkdir(mode=0o700)
+    grants.mkdir(mode=0o700)
+    for context_ref, project_ref in (
+        ("context-1", "project-1"),
+        ("context-2", "project-1"),
+        ("context-3", "project-2"),
+    ):
+        _write_project_chat(chats, context_ref, project_ref)
+
+    secret = authority / "issuer-root.secret"
+    profile = authority / "issuer-profile.json"
+    opaque_key = authority / "opaque-reference.key"
+    _run_local_cli(
+        "issuer-bootstrap",
+        "--secret",
+        secret,
+        "--profile",
+        profile,
+        "--issuer",
+        "issuer-1",
+        "--key-epoch",
+        "1",
+        "--authority-class",
+        "operator_authority_grant",
+        "--confirm",
+        "BOOTSTRAP_LOCAL_AUTHORITY",
+    )
+    _run_local_cli(
+        "opaque-key-bootstrap",
+        "--output",
+        opaque_key,
+        "--key-epoch",
+        "opaque-1",
+        "--confirm",
+        "BOOTSTRAP_OPAQUE_REFERENCE_KEY",
+    )
+
+    result = _run_local_cli(
+        "project-genesis",
+        "--store",
+        state / "dspy_rlm_v3.sqlite",
+        "--manifest",
+        state / "store-authority-manifest.json",
+        "--chats-dir",
+        chats,
+        "--project",
+        "project-1",
+        "--secret",
+        secret,
+        "--profile",
+        profile,
+        "--opaque-key",
+        opaque_key,
+        "--opaque-key-epoch",
+        "opaque-1",
+        "--grant-dir",
+        grants,
+        "--subject",
+        "operator-1",
+        "--idempotency-prefix",
+        "project-genesis-1",
+        "--session-nonce-prefix",
+        "project-session-1",
+        "--authority-expires-at",
+        "2030-01-01T00:15:00Z",
+        "--now",
+        "2030-01-01T00:00:00Z",
+        "--confirm",
+        "BOOTSTRAP_PROJECT_GENESIS",
+        "--create-store",
+    )
+
+    assert result["state"] == "ready"
+    assert result["context_count"] == 2
+    assert result["initialized_context_refs"] == ["context-1", "context-2"]
+    assert result["already_ready_count"] == 0
+    assert len(result["activation_receipt_refs"]) == 2
+    assert len(tuple(grants.glob("grant_*.json"))) == 2

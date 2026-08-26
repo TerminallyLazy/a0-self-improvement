@@ -76,6 +76,13 @@ def test_store_preflights_public_status_before_requesting_operator_views() -> No
     assert "publicStatus?.activation_scope?.reason_codes" in STORE
 
 
+def test_store_explains_context_scoped_genesis_without_exposing_paths() -> None:
+    assert 'title: "Genesis required"' in STORE
+    assert "This context does not have a revision-0 Activation Scope yet." in STORE
+    assert "Store Authority Manifest failed verification." in STORE
+    assert 'x-text="$store.dspyRlm.errorCopy.message"' in MAIN
+
+
 def test_mutation_and_diagnostic_authority_stay_fail_closed() -> None:
     assert 'action.state === "eligible"' in STORE
     assert "diagnostic_canary_no_activation_authority" in MAIN

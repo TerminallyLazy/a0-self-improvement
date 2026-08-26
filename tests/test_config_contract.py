@@ -91,6 +91,17 @@ def test_settings_switches_bridge_stable_controls_to_canonical_optimization_keys
         assert bridge in markup
 
 
+def test_operating_profile_highlight_follows_the_selected_preset() -> None:
+    markup = (PLUGIN_ROOT / "webui" / "config.html").read_text(encoding="utf-8")
+
+    assert "selectedPreset: 'balanced'" in markup
+    assert "this.selectedPreset = level;" in markup
+    for profile in ("safe", "balanced", "aggressive"):
+        assert f":class=\"{{ 'is-strong': selectedPreset === '{profile}' }}\"" in markup
+
+    assert 'class="dspy-btn is-strong"' not in markup
+
+
 def test_enabled_optimization_switches_survive_json_round_trip() -> None:
     settings = config_module.normalize_config({})
     settings["optimization"].update(

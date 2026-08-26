@@ -6,6 +6,24 @@ const API_BASE = "/plugins/dspy_rlm";
 const PUBLIC_STATUS_SCHEMA = "a0.public-status.v1";
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const ERROR_COPY = Object.freeze({
+  activation_scope_missing: {
+    title: "Genesis required",
+    message: "This context does not have a revision-0 Activation Scope yet.",
+  },
+  safe_store_missing: {
+    title: "Safe store required",
+    message: "Create the v3 safe store and initialize Genesis for this context.",
+  },
+  safe_store_unreadable: {
+    title: "Safe store blocked",
+    message: "The selected v3 store or Store Authority Manifest failed verification.",
+  },
+  context_required: {
+    title: "Context required",
+    message: "Select an Agent Zero context before reading operator state.",
+  },
+});
 
 const VIEW_DEFINITIONS = Object.freeze({
   overview: Object.freeze({ label: "Overview", schema: "a0.operator-overview.v1" }),
@@ -455,6 +473,13 @@ export const store = createStore("dspyRlm", {
   get privacyMigration() { return this.projections.privacy_migration; },
   get policyCapabilities() { return this.projections.policy_capabilities; },
   get receiptsAudit() { return this.projections.receipts_audit; },
+
+  get errorCopy() {
+    return ERROR_COPY[this.lastErrorCode] || {
+      title: "Operator state unavailable",
+      message: this.lastErrorCode,
+    };
+  },
 
   get filteredCandidates() {
     const items = this.candidates.items;

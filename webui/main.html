@@ -2,7 +2,7 @@
   <head>
     <title>A0 Self-Improvement</title>
     <script type="module">
-      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=301";
+      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=302";
     </script>
   </head>
   <body>
@@ -29,8 +29,9 @@
           />
         </label>
         <div class="notice" x-show="$store.dspyRlm.lastErrorCode">
-          <strong>Unavailable</strong>
-          <span x-text="$store.dspyRlm.lastErrorCode"></span>
+          <strong x-text="$store.dspyRlm.errorCopy.title"></strong>
+          <span x-text="$store.dspyRlm.errorCopy.message"></span>
+          <code x-show="$store.dspyRlm.lastErrorCode === 'activation_scope_missing'" x-text="$store.dspyRlm.contextId"></code>
         </div>
       </section>
 
