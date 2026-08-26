@@ -77,3 +77,14 @@ def test_mutation_and_diagnostic_authority_stay_fail_closed() -> None:
     assert "stageSafetyBypass" not in MAIN
     assert ">Apply Safety Bypass<" not in MAIN
     assert "force" not in MAIN.lower()
+
+
+def test_operator_styles_are_isolated_from_agent_zero_host_css() -> None:
+    assert '<main id="a0si-operator" class="operator-shell"' in MAIN
+    assert "#a0si-operator .panel {" in MAIN
+    assert "display:block;" in MAIN
+    assert "height:auto;" in MAIN
+    assert "overflow:visible;" in MAIN
+    assert ":root { --ink" not in MAIN
+    assert "\n      body {" not in MAIN
+    assert "\n      * { box-sizing" not in MAIN
