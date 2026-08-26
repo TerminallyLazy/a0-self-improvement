@@ -6,7 +6,7 @@ An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordi
 
 - Stores strict canonical records, links, receipts, lifecycle events, activation scopes, operation slots, work leases, and budget authority in a v3 safe-projection store.
 - Records restart-safe, content-free runtime observation facts from the certified message-loop and tool-result seams without retaining prompts, tool traffic, provider data, paths, or error text.
-- Composes one atomic Activation Profile containing structured-guidance and prompt-patch slots; Null Genesis is byte-inert at the prompt seam.
+- Creates a safe, no-effect starting profile for each project chat before any improvement can be considered; internally this is the byte-inert Null Genesis profile.
 - Supports deterministic candidate analysis, certified fixture replay, evidence dispositions, calibrated canaries, exact-revision activation, monitoring, ancestry-safe rollback, and all-null Safety Bypass contracts.
 - Routes an occupied canary deterministically through the exact incumbent or successor profile when an explicitly provisioned assignment key matches the frozen plan, then records only content-free exposure facts after the matching loop outcome.
 - Presents six context-scoped operator views without raw prompts, tool traffic, fixture content, model reasoning, provider identifiers, filesystem paths, secrets, quarantine identities, or exception strings.
@@ -16,7 +16,7 @@ An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordi
 
 1. Install the repository as `usr/plugins/dspy_rlm` or use Agent Zero's Plugin Hub.
 2. Assign the chat to an Agent Zero project so parallel-agent contexts share one enrollment boundary.
-3. Enable the plugin. By default it creates only inert Null Genesis scopes for chats in that project. Use `python scripts/a0_local_authority.py --help` only for recovery and advanced local authority operations.
+3. Enable the plugin. By default it safely prepares every chat in that project automatically. No command-line setup is required.
 4. Open the dashboard to inspect the six read-only, content-free operator views for a live context.
 5. Submit mutations only through the signed v3 command contract with an exact context, target, revision, idempotency key, browser-session challenge, and unexpired action-scoped grant.
 
@@ -93,13 +93,13 @@ uv run --frozen --extra test python -m pytest
 
 The `test` extra contains only pytest, pytest-asyncio, and PyYAML. DSPy, GEPA, model-provider SDKs, and other worker dependencies remain governed by `requirements-gepa.lock` and must stay out of Agent Zero's framework interpreter. CI also parses, but never imports, the exact pinned Agent Zero source contract at `b22a144bf59f15b1516084c9e7b88133ba92c8a9`.
 
-## Automatic project Genesis and local recovery
+## Automatic project setup and advanced recovery
 
-When the plugin is enabled, `automatic_project_genesis` defaults to `true`. At message-loop start, before prompt composition, the plugin discovers chat context IDs assigned to the same Agent Zero project and creates any missing revision-zero Null Genesis scopes. This is content-free and byte-inert: it reads only chat IDs and project identifiers, creates a dedicated owner-only local custody directory, and has no enqueue, candidate, promotion, activation, rollback, migration, or content authority. Parallel-agent chats in the project are serialized through one local coordinator lock, so users do not need to run setup commands.
+When the plugin is enabled, automatic project setup defaults to on. Before processing a message, the plugin safely prepares any chats assigned to the same Agent Zero project, including parallel-agent chats. It reads only chat IDs and project identifiers, and the starting state has no effect on prompts or responses. Users do not need to run setup commands.
 
-The Settings page exposes **Set up project Genesis automatically** for operators who need to disable this convenience path. Disabling it does not remove existing scopes. The plugin-wide `enabled` gate and the offline-replay gate both stop automatic enrollment before any store or custody write. Chats without an Agent Zero project are not enrolled automatically.
+The Settings page exposes **Set up project chats automatically** for operators who need to disable this behavior. Disabling it does not remove existing setup. Chats without an Agent Zero project are not prepared automatically.
 
-Status and prompt composition remain pure reads. Automatic enrollment may create the pre-cutover v3 store only from the message-loop-start coordinator. Any failure is fail-closed for improvement and never blocks the ordinary Agent Zero chat. The local protocol remains available for recovery and advanced authority management:
+Internally, this safe starting state is called **Genesis**. The term appears below only because it is part of the advanced recovery command names. Any setup failure disables self-improvement for that chat but never blocks ordinary Agent Zero behavior. Advanced recovery tools remain available:
 
 ```bash
 python scripts/a0_local_authority.py --help

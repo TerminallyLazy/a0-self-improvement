@@ -8,12 +8,12 @@ const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 const ERROR_COPY = Object.freeze({
   activation_scope_missing: {
-    title: "Genesis required",
-    message: "This context does not have a revision-0 Activation Scope yet.",
+    title: "Project setup needed",
+    message: "This chat has not been prepared for safe self-improvement yet. Send a new message with automatic project setup enabled.",
   },
   safe_store_missing: {
-    title: "Safe store required",
-    message: "Create the v3 safe store and initialize Genesis for this context.",
+    title: "Project setup needed",
+    message: "Enable automatic project setup, then send a message in a chat assigned to a project.",
   },
   safe_store_unreadable: {
     title: "Safe store blocked",

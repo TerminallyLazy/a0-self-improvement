@@ -93,6 +93,8 @@ def test_settings_switches_bridge_stable_controls_to_canonical_optimization_keys
         assert bridge in markup
 
     assert "config.automatic_project_genesis = toBool(config.automatic_project_genesis, true);" in markup
+    assert "Set up project chats automatically" in markup
+    assert "Set up project Genesis automatically" not in markup
 
 
 def test_automatic_project_genesis_persists_and_falls_closed_without_defaults(

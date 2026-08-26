@@ -76,9 +76,11 @@ def test_store_preflights_public_status_before_requesting_operator_views() -> No
     assert "publicStatus?.activation_scope?.reason_codes" in STORE
 
 
-def test_store_explains_context_scoped_genesis_without_exposing_paths() -> None:
-    assert 'title: "Genesis required"' in STORE
-    assert "This context does not have a revision-0 Activation Scope yet." in STORE
+def test_store_explains_project_setup_without_internal_jargon_or_paths() -> None:
+    assert 'title: "Project setup needed"' in STORE
+    assert "prepared for safe self-improvement" in STORE
+    assert "Genesis required" not in STORE
+    assert "Activation Scope yet" not in STORE
     assert "Store Authority Manifest failed verification." in STORE
     assert 'x-text="$store.dspyRlm.errorCopy.message"' in MAIN
 
