@@ -1,3 +1,5 @@
 # Sole model-worker root. The generated lock owns the transitive DSPy, GEPA,
 # and Deno closure; Agent Zero's framework interpreter never installs it.
 dspy[deno]==3.3.1
+simpleeval==1.0.3
+webcolors==24.6.0

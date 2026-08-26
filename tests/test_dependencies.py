@@ -9,6 +9,8 @@ def test_current_worker_lock_is_hashed_and_excludes_dspy_cli() -> None:
     assert "dspy==3.3.1" in requirements
     assert "deno==2.9.5" in requirements
     assert "gepa==0.1.4" in requirements
+    assert "simpleeval==1.0.3" in requirements
+    assert "webcolors==24.6.0" in requirements
     assert not any(requirement.startswith("dspy-cli==") for requirement in requirements)
     assert dependencies.lock_hash_complete() is True
 
