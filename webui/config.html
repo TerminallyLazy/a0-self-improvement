@@ -82,9 +82,12 @@
             enable_replay_audit: true,
             max_replay_depth: 6,
           });
+          const optimization = this._ensureSection(config, 'optimization', {
+            auto_optimize: false,
+          });
 
           if (level === 'safe') {
-            config.auto_optimize_enabled = true;
+            optimization.auto_optimize = true;
             config.optimization_interval_messages = 24;
             config.optimization_min_samples = 24;
             config.optimization_cooldown_hours = 12;
@@ -106,7 +109,7 @@
             evaluator.risk_threshold = 0.20;
             evaluator.enable_replay_audit = true;
           } else if (level === 'balanced') {
-            config.auto_optimize_enabled = true;
+            optimization.auto_optimize = true;
             config.optimization_interval_messages = 12;
             config.optimization_min_samples = 10;
             config.optimization_cooldown_hours = 6;
@@ -122,7 +125,7 @@
             config.scheduler_heartbeat_seconds = 8;
             evaluator.risk_threshold = 0.25;
           } else if (level === 'aggressive') {
-            config.auto_optimize_enabled = true;
+            optimization.auto_optimize = true;
             config.optimization_interval_messages = 6;
             config.optimization_min_samples = 6;
             config.optimization_cooldown_hours = 2;
@@ -144,6 +147,7 @@
 
           config.matrix = matrix;
           config.evaluator = evaluator;
+          config.optimization = optimization;
         },
       }"
       x-init="
@@ -688,9 +692,19 @@
           scheduler.enforce_single_tenant_per_context = toBool(value, false);
         });
 
-        $watch(() => config.auto_optimize_enabled, (value) => {
+        $watch(() => config.optimization.auto_optimize, (value) => {
+          const enabled = toBool(value, false);
           const optimizationSection = ensureOptimizationSection();
-          optimizationSection.auto_optimize = toBool(value, false);
+          optimizationSection.auto_optimize = enabled;
+          config.auto_optimize_enabled = enabled;
+          config.auto_optimize = enabled;
+          config.auto_enqueue = enabled;
+        });
+        $watch(() => config.optimization.enable_dspy_optimizer, (value) => {
+          const enabled = toBool(value, false);
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.enable_dspy_optimizer = enabled;
+          config.enable_dspy_optimizer = enabled;
         });
         $watch(() => config.gepa_steps, (value) => {
           const mapped = toInt(value, 3, 1, 128);
@@ -790,7 +804,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Auto optimize</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.auto_optimize_enabled" /><span class="slider"></span></label>
+                  <label class="toggle"><input type="checkbox" x-model="config.optimization.auto_optimize" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field inline">
@@ -831,7 +845,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Enable GEPA</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.enable_dspy_optimizer" /><span class="slider"></span></label>
+                  <label class="toggle"><input type="checkbox" x-model="config.optimization.enable_dspy_optimizer" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field inline">
@@ -879,7 +893,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Enable replay audit</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.enable_replay_audit" /><span class="slider"></span></label>
+                  <label class="toggle"><input type="checkbox" x-model="config.optimization.enable_replay_audit" /><span class="slider"></span></label>
                 </label>
               </div>
             </div>
@@ -1313,7 +1327,7 @@
       font-weight: 700;
     }
 
-    h1 {
+    .dspy-config-shell h1 {
       margin: 0;
       font-size: clamp(1.35rem, 2.4vw, 1.9rem);
       line-height: 1.1;
@@ -1424,7 +1438,7 @@
 
     .dspy-card small,
     .dspy-cell small,
-    .hint {
+    .dspy-config-shell .hint {
       color: var(--dspy-soft);
       font-size: 0.74rem;
       line-height: 1.25;
@@ -1442,7 +1456,7 @@
     .dspy-field input[type='text'],
     .dspy-field select,
     .dspy-cell select,
-    textarea {
+    .dspy-config-shell textarea {
       width: 100%;
       border-radius: 8px;
       border: 1px solid var(--dspy-soft-border);
@@ -1475,7 +1489,7 @@
       color: #d6e7ff;
     }
 
-    .toggle {
+    .dspy-config-shell .toggle {
       position: relative;
       width: 38px;
       height: 20px;
@@ -1483,7 +1497,7 @@
       align-items: center;
     }
 
-    .toggle input {
+    .dspy-config-shell .toggle input {
       opacity: 0;
       position: absolute;
       width: 100%;
@@ -1492,7 +1506,7 @@
       cursor: pointer;
     }
 
-    .toggle .slider {
+    .dspy-config-shell .toggle .slider {
       width: 100%;
       height: 20px;
       border-radius: 999px;
@@ -1501,7 +1515,7 @@
       transition: background 160ms ease;
     }
 
-    .toggle .slider::after {
+    .dspy-config-shell .toggle .slider::after {
       content: '';
       width: 14px;
       height: 14px;
@@ -1514,16 +1528,16 @@
       box-shadow: 0 0 0 0 rgba(62, 209, 164, 0.35);
     }
 
-    .toggle input:checked + .slider {
+    .dspy-config-shell .toggle input:checked + .slider {
       background: rgba(62, 209, 164, 0.5);
     }
 
-    .toggle input:checked + .slider::after {
+    .dspy-config-shell .toggle input:checked + .slider::after {
       transform: translateX(18px);
       background: #effcff;
     }
 
-    .dspy-cell .toggle {
+    .dspy-config-shell .dspy-cell .toggle {
       margin-left: auto;
     }
 
@@ -1551,7 +1565,7 @@
       .dspy-field select,
       .dspy-cell input,
       .dspy-cell select,
-      textarea {
+      .dspy-config-shell textarea {
         width: 100%;
       }
 
@@ -1561,6 +1575,6 @@
       }
     }
   </style>
-  <link rel="stylesheet" href="/plugins/dspy_rlm/webui/dspy-rlm-polish.css?v=101" />
+  <link rel="stylesheet" href="/plugins/dspy_rlm/webui/dspy-rlm-polish.css?v=102" />
   <script type="module" src="/plugins/dspy_rlm/webui/dspy-rlm-config-ui.js?v=100"></script>
 </html>

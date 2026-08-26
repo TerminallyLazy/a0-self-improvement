@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
+
+from usr.plugins.dspy_rlm.helpers import config as config_module
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -54,3 +57,51 @@ def test_checked_in_default_config_has_no_conflicting_legacy_aliases() -> None:
         "scheduler_max_workers",
     }
     assert forbidden_legacy_keys.isdisjoint(defaults)
+
+
+def test_settings_switches_bind_canonical_optimization_keys_and_sync_aliases() -> None:
+    markup = (PLUGIN_ROOT / "webui" / "config.html").read_text(encoding="utf-8")
+
+    for binding in (
+        'x-model="config.optimization.auto_optimize"',
+        'x-model="config.optimization.enable_dspy_optimizer"',
+        'x-model="config.optimization.enable_replay_audit"',
+    ):
+        assert binding in markup
+
+    for legacy_binding in (
+        'x-model="config.auto_optimize_enabled"',
+        'x-model="config.enable_dspy_optimizer"',
+        'x-model="config.enable_replay_audit"',
+    ):
+        assert legacy_binding not in markup
+
+    for mirrored_alias in (
+        "config.auto_optimize_enabled = enabled;",
+        "config.auto_optimize = enabled;",
+        "config.auto_enqueue = enabled;",
+        "config.enable_dspy_optimizer = enabled;",
+    ):
+        assert mirrored_alias in markup
+
+
+def test_enabled_optimization_switches_survive_json_round_trip() -> None:
+    settings = config_module.normalize_config({})
+    settings["optimization"].update(
+        auto_optimize=True,
+        enable_dspy_optimizer=True,
+        enable_replay_audit=True,
+    )
+    settings.update(
+        auto_optimize_enabled=True,
+        auto_optimize=True,
+        auto_enqueue=True,
+        enable_dspy_optimizer=True,
+    )
+
+    reloaded = config_module.normalize_config(json.loads(json.dumps(settings)))
+
+    assert reloaded["optimization"]["auto_optimize"] is True
+    assert reloaded["optimization"]["enable_dspy_optimizer"] is True
+    assert reloaded["optimization"]["enable_replay_audit"] is True
+    assert not any("conflicting legacy aliases" in item for item in reloaded["diagnostics"])

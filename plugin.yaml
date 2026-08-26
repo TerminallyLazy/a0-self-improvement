@@ -1,7 +1,7 @@
 name: dspy_rlm
 title: A0 Self-Improvement
 description: Provides authority-ranked observation, candidate, governed replay, canary, activation, monitoring, and rollback contracts for Agent Zero.
-version: 2.0.2
+version: 2.0.3
 always_enabled: false
 settings_sections:
   - agent
