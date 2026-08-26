@@ -862,17 +862,48 @@
                 <strong>Autopilot <span>Experimental</span></strong><small>Generate candidates automatically and expose every v3 canary, activation, and rollback blocker. This release cannot self-grant production promotion authority.</small>
               </button>
             </div>
-            <div class="automation-scope">
-              <label>Scope
-                <select x-model="config.automation.scope">
-                  <option value="project">Current project</option>
-                  <option value="current_chat">Current chat</option>
-                </select>
-              </label>
-              <label>Live dashboard refresh
-                <div class="automation-inline"><input type="number" min="1" max="30" x-model.number="config.automation.live_refresh_seconds" /><span>seconds</span></div>
-              </label>
-              <label class="automation-check"><input type="checkbox" x-model="config.automation.capture_system_prompts" :disabled="selectedAutomation === 'observe'" /> Capture local system-prompt snapshots</label>
+            <div class="automation-controls">
+              <div class="automation-control">
+                <span class="automation-control-label">Scope</span>
+                <label class="automation-control-surface automation-scope-picker">
+                  <span class="automation-context-dot" :class="{ 'is-chat': config.automation.scope === 'current_chat' }" aria-hidden="true"></span>
+                  <span class="automation-control-copy">
+                    <strong x-text="config.automation.scope === 'project' ? 'Current project' : 'Current chat'"></strong>
+                    <small x-text="config.automation.scope === 'project' ? 'All project chats' : 'Selected conversation only'"></small>
+                  </span>
+                  <svg class="automation-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.75 6.25 3.25 3.25 3.25-3.25" /></svg>
+                  <select aria-label="Scope" x-model="config.automation.scope">
+                    <option value="project">Current project</option>
+                    <option value="current_chat">Current chat</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="automation-control">
+                <span class="automation-control-label">Live dashboard refresh</span>
+                <div class="automation-control-surface automation-refresh-control">
+                  <span class="automation-live-dot" aria-hidden="true"></span>
+                  <span class="automation-control-copy">
+                    <strong>Live updates</strong>
+                    <small>While this screen is open</small>
+                  </span>
+                  <label class="automation-interval-field">
+                    <input aria-label="Live dashboard refresh seconds" type="number" min="1" max="30" x-model.number="config.automation.live_refresh_seconds" />
+                    <span>sec</span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="automation-control">
+                <span class="automation-control-label">Prompt capture</span>
+                <label class="automation-control-surface automation-toggle-control" :class="{ 'is-disabled': selectedAutomation === 'observe' }">
+                  <span class="automation-control-copy">
+                    <strong>Capture local system-prompt snapshots</strong>
+                    <small>Local only · conversation content excluded</small>
+                  </span>
+                  <span class="toggle"><input type="checkbox" x-model="config.automation.capture_system_prompts" :disabled="selectedAutomation === 'observe'" /><span class="slider"></span></span>
+                </label>
+              </div>
             </div>
           </section>
 
@@ -1548,16 +1579,162 @@
 
     .automation-option.is-selected { border-color: rgba(62, 209, 164, 0.72); background: rgba(62, 209, 164, 0.12); box-shadow: inset 0 0 0 1px rgba(62, 209, 164, 0.12); }
 
-    .automation-scope { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; }
+    .automation-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 10px; }
 
-    .automation-scope label { display: grid; gap: 6px; min-width: 0; color: var(--dspy-soft); font-size: 0.82rem; }
+    .automation-control { display: grid; grid-template-rows: 16px 68px; gap: 6px; min-width: 0; }
 
-    .automation-scope select,
-    .automation-scope input[type='number'] { width: 100%; min-width: 0; }
+    .automation-control-label {
+      color: var(--dspy-soft);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.035em;
+    }
 
-    .automation-inline { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 7px; }
+    .automation-control-surface {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      height: 68px;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid rgba(117, 151, 211, 0.38);
+      border-radius: 9px;
+      background: rgba(6, 17, 36, 0.72);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+      transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+    }
 
-    .automation-check { grid-template-columns: auto minmax(0, 1fr) !important; align-items: center; }
+    .automation-control-surface:hover {
+      border-color: rgba(133, 171, 238, 0.65);
+      background: rgba(9, 23, 48, 0.86);
+    }
+
+    .automation-control-copy {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+      flex: 1 1 auto;
+      line-height: 1.1;
+    }
+
+    .automation-control-copy strong {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: #eef4ff;
+      font-size: 0.83rem;
+      font-weight: 750;
+    }
+
+    .automation-control-copy small {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: var(--dspy-soft);
+      font-size: 0.7rem;
+      line-height: 1.25;
+    }
+
+    .automation-scope-picker { position: relative; cursor: pointer; }
+
+    .automation-scope-picker select {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .automation-scope-picker:has(select:focus-visible) {
+      border-color: rgba(123, 161, 255, 0.92);
+      box-shadow: 0 0 0 3px rgba(93, 132, 237, 0.18);
+    }
+
+    .automation-context-dot,
+    .automation-live-dot {
+      width: 11px;
+      height: 11px;
+      flex: 0 0 11px;
+      border-radius: 50%;
+    }
+
+    .automation-context-dot {
+      border: 1px solid rgba(53, 112, 224, 0.68);
+      background: #17478f;
+      box-shadow: 0 0 0 3px rgba(38, 92, 188, 0.12);
+    }
+
+    .automation-context-dot.is-chat {
+      border-color: rgba(156, 117, 239, 0.72);
+      background: #7044bd;
+      box-shadow: 0 0 0 3px rgba(126, 79, 207, 0.12);
+    }
+
+    .automation-live-dot {
+      width: 9px;
+      height: 9px;
+      flex-basis: 9px;
+      background: #43d7aa;
+      box-shadow: 0 0 0 4px rgba(67, 215, 170, 0.1), 0 0 12px rgba(67, 215, 170, 0.3);
+    }
+
+    .automation-chevron {
+      width: 16px;
+      height: 16px;
+      flex: 0 0 16px;
+      color: #9fb1cf;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .automation-interval-field {
+      display: grid;
+      grid-template-columns: 30px auto;
+      align-items: center;
+      flex: 0 0 auto;
+      height: 34px;
+      padding: 0 9px;
+      border: 1px solid rgba(117, 151, 211, 0.34);
+      border-radius: 8px;
+      background: rgba(1, 8, 20, 0.62);
+    }
+
+    .automation-interval-field:focus-within {
+      border-color: rgba(123, 161, 255, 0.86);
+      box-shadow: 0 0 0 3px rgba(93, 132, 237, 0.14);
+    }
+
+    .automation-interval-field input[type='number'] {
+      width: 30px;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      outline: 0;
+      color: #f2f6ff;
+      background: transparent;
+      font: inherit;
+      font-size: 0.78rem;
+      font-weight: 750;
+      text-align: center;
+      appearance: textfield;
+    }
+
+    .automation-interval-field input[type='number']::-webkit-inner-spin-button,
+    .automation-interval-field input[type='number']::-webkit-outer-spin-button { margin: 0; appearance: none; }
+
+    .automation-interval-field span { color: #90a3c2; font-size: 0.7rem; }
+
+    .automation-toggle-control { cursor: pointer; }
+
+    .automation-toggle-control .toggle { flex: 0 0 38px; }
+
+    .automation-toggle-control.is-disabled { cursor: not-allowed; opacity: 0.58; }
+
+    .automation-toggle-control.is-disabled .toggle input { cursor: not-allowed; }
 
     .dspy-btn {
       border: 1px solid var(--dspy-soft-border);
@@ -1756,7 +1933,7 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
       .automation-options,
-      .automation-scope { grid-template-columns: 1fr; }
+      .automation-controls { grid-template-columns: 1fr; }
     }
   </style>
   <link rel="stylesheet" href="/plugins/dspy_rlm/webui/dspy-rlm-polish.css?v=102" />
