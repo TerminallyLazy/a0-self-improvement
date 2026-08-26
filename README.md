@@ -17,7 +17,7 @@ An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordi
 1. Install the repository as `usr/plugins/dspy_rlm` or use Agent Zero's Plugin Hub.
 2. Assign the chat to an Agent Zero project so parallel-agent contexts share one enrollment boundary.
 3. Enable the plugin. By default it safely prepares every chat in that project automatically. No command-line setup is required.
-4. Open the dashboard to inspect the six read-only, content-free operator views for a live context.
+4. Open the dashboard, choose a chat from the project-colored context menu, and inspect the six read-only, content-free operator views for that chat.
 5. Submit mutations only through the signed v3 command contract with an exact context, target, revision, idempotency key, browser-session challenge, and unexpired action-scoped grant.
 
 The projection and command APIs retain Agent Zero authentication and CSRF protections. Reads open only the selected existing safe-store generation in SQLite read-only/query-only mode; they never create, repair, migrate, or fall back. The signed command endpoint dispatches optimize, work cancellation, canary start/stop, activation, rollback, Safety Bypass, monitor conclusion, requalification start/conclusion, feedback, and fixture draft/review/admit/withdraw. Fixture commands resolve opaque content-session handles only through an explicitly provisioned private runtime profile, current-owner custody files, the encrypted vault, and the durable repository ledger; missing custody remains a truthful `503`. A rollback-required monitor or requalification conclusion emits a request-only authority record and leaves the Activation Scope unchanged; the separately signed rollback command remains the sole profile-mutating transition. The retired `/optimize`, `/promote`, and `/rollback` routes return safe `410` responses and perform no mutation.
@@ -96,6 +96,8 @@ The `test` extra contains only pytest, pytest-asyncio, and PyYAML. DSPy, GEPA, m
 ## Automatic project setup and advanced recovery
 
 When the plugin is enabled, automatic project setup defaults to on. Before processing a message, the plugin safely prepares any chats assigned to the same Agent Zero project, including parallel-agent chats. It reads only chat IDs and project identifiers, and the starting state has no effect on prompts or responses. Users do not need to run setup commands.
+
+The dashboard context menu shows the Agent Zero project name and its chosen color, then lists every currently discovered chat in that project, including parallel and child chats. Selecting an entry changes only the plugin's inspection scope; it does not switch the underlying Agent Zero conversation.
 
 The Settings page exposes **Set up project chats automatically** for operators who need to disable this behavior. Disabling it does not remove existing setup. Chats without an Agent Zero project are not prepared automatically.
 

@@ -7,7 +7,7 @@ This is the implementation authority for the v3 redesign of the standalone A0 Se
 - Canonical source: TerminallyLazy/a0-self-improvement
 - Planning baseline: f5d319db98cc6f797811cc0035f88bcb7d9311ec
 - Initial Agent Zero compatibility target: b22a144bf59f15b1516084c9e7b88133ba92c8a9
-- Current plugin version: 2.0.7
+- Current plugin version: 2.0.8
 - Target breaking release: 2.0.0, preceded by 2.0.0-rc.N releases
 - Architecture authority: accepted ADRs 0001 through 0011
 - Ubiquitous language authority: CONTEXT.md
@@ -586,6 +586,8 @@ Every local command binds exact issuer, subject, context, action/purpose, target
 ## Operator UI
 
 Build the UI after public projections and coordinator commands are frozen.
+
+The context selector presents the selected Agent Zero project's title and configured color, with a project-scoped menu containing all discovered top-level, child, and parallel-agent chats. The selected chat remains the exact backend authority scope; changing the inspection target does not navigate the host conversation.
 
 ### Overview
 

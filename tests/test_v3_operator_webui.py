@@ -107,3 +107,21 @@ def test_operator_styles_are_isolated_from_agent_zero_host_css() -> None:
     assert ":root { --ink" not in MAIN
     assert "\n      body {" not in MAIN
     assert "\n      * { box-sizing" not in MAIN
+
+
+def test_context_picker_groups_agent_zero_chats_by_project() -> None:
+    assert 'from "/components/sidebar/chats/chats-store.js"' in STORE
+    assert "context?.project?.name" in STORE
+    assert "projectChats" in STORE
+    assert "projectColor" in STORE
+    assert "selectedChatLabel" in STORE
+    assert 'x-for="chat in $store.dspyRlm.projectChats"' in MAIN
+    assert "backgroundColor: $store.dspyRlm.projectColor" in MAIN
+    assert "$store.dspyRlm.selectProjectChat(chat.id)" in MAIN
+    assert 'placeholder="Select a context"' not in MAIN
+
+
+def test_overview_axis_cards_contain_long_projection_reasons() -> None:
+    assert ".axis-card > * { min-width:0; max-width:100%; }" in MAIN
+    assert "overflow:hidden; }" in MAIN
+    assert "overflow-wrap:anywhere; word-break:break-word;" in MAIN

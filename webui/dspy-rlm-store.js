@@ -1,11 +1,13 @@
 import { createStore } from "/js/AlpineStore.js";
 import { callJsonApi } from "/js/api.js";
 import { getContext } from "/index.js";
+import { store as chatsStore } from "/components/sidebar/chats/chats-store.js";
 
 const API_BASE = "/plugins/dspy_rlm";
 const PUBLIC_STATUS_SCHEMA = "a0.public-status.v1";
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const SAFE_COLOR = /^#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?$/;
 const ERROR_COPY = Object.freeze({
   activation_scope_missing: {
     title: "Project setup needed",
@@ -38,6 +40,16 @@ const VIEW_IDS = Object.freeze(Object.keys(VIEW_DEFINITIONS));
 
 function safeToken(value, fallback = "unavailable") {
   return typeof value === "string" && SAFE_TOKEN.test(value) ? value : fallback;
+}
+
+function safeLabel(value, fallback = "Unavailable") {
+  if (typeof value !== "string") return fallback;
+  const label = value.replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim();
+  return label ? label.slice(0, 120) : fallback;
+}
+
+function safeColor(value) {
+  return typeof value === "string" && SAFE_COLOR.test(value) ? value : "";
 }
 
 function optionalToken(value) {
@@ -474,6 +486,61 @@ export const store = createStore("dspyRlm", {
   get policyCapabilities() { return this.projections.policy_capabilities; },
   get receiptsAudit() { return this.projections.receipts_audit; },
 
+  get selectedChatMetadata() {
+    const contexts = Array.isArray(chatsStore.contexts) ? chatsStore.contexts : [];
+    return contexts.find((context) => safeToken(context?.id, "") === this.contextId) || null;
+  },
+
+  get currentProject() {
+    const project = this.selectedChatMetadata?.project;
+    const name = safeToken(project?.name, "");
+    return {
+      name,
+      title: safeLabel(project?.title || project?.name, name ? "Project" : "No project assigned"),
+      color: safeColor(project?.color),
+    };
+  },
+
+  get projectTitle() {
+    return this.currentProject.title;
+  },
+
+  get projectColor() {
+    return this.currentProject.color;
+  },
+
+  get selectedChatLabel() {
+    const chat = this.selectedChatMetadata;
+    return safeLabel(
+      chat?.parent_context_label || chat?.name,
+      this.contextId ? "Current chat" : "Select a chat",
+    );
+  },
+
+  get projectChats() {
+    const contexts = Array.isArray(chatsStore.contexts) ? chatsStore.contexts : [];
+    const projectName = this.currentProject.name;
+    const matching = projectName
+      ? contexts.filter((context) => safeToken(context?.project?.name, "") === projectName)
+      : contexts.filter((context) => safeToken(context?.id, "") === this.contextId);
+    const chats = matching.map((context) => ({
+      id: safeToken(context?.id, ""),
+      label: safeLabel(
+        context?.parent_context_label || context?.name,
+        Number.isInteger(context?.no) ? `Chat #${context.no}` : "Unnamed chat",
+      ),
+    })).filter((chat) => chat.id);
+    if (!chats.length && this.contextId) {
+      return [{ id: this.contextId, label: this.selectedChatLabel }];
+    }
+    return chats;
+  },
+
+  get projectChatCountLabel() {
+    const count = this.projectChats.length;
+    return `${count} ${count === 1 ? "chat" : "chats"}`;
+  },
+
   get errorCopy() {
     return ERROR_COPY[this.lastErrorCode] || {
       title: "Operator state unavailable",
@@ -524,6 +591,10 @@ export const store = createStore("dspyRlm", {
     this.selectedCandidateRef = null;
     this.pendingAction = null;
     void this.refreshAll();
+  },
+
+  selectProjectChat(contextId) {
+    this.setContextId(contextId);
   },
 
   async refreshAll() {

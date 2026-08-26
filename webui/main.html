@@ -2,7 +2,7 @@
   <head>
     <title>A0 Self-Improvement</title>
     <script type="module">
-      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=302";
+      import { store } from "/plugins/dspy_rlm/webui/dspy-rlm-store.js?v=304";
     </script>
   </head>
   <body>
@@ -18,16 +18,48 @@
         </button>
       </header>
 
-      <section class="context-band">
-        <label>
-          <span>Context</span>
-          <input
-            :value="$store.dspyRlm.contextId"
-            @change="$store.dspyRlm.setContextId($event)"
-            placeholder="Select a context"
-            autocomplete="off"
-          />
-        </label>
+      <section class="context-band" x-data="{ projectChatsOpen: false }" @keydown.escape.window="projectChatsOpen = false">
+        <div class="context-picker" @click.outside="projectChatsOpen = false">
+          <span class="context-label">Context</span>
+          <button
+            type="button"
+            class="project-context-button"
+            @click="projectChatsOpen = !projectChatsOpen"
+            :aria-expanded="projectChatsOpen.toString()"
+            aria-haspopup="listbox"
+          >
+            <span
+              class="project-color-dot"
+              :class="{ 'is-empty': !$store.dspyRlm.projectColor }"
+              :style="$store.dspyRlm.projectColor ? { backgroundColor: $store.dspyRlm.projectColor } : {}"
+              aria-hidden="true"
+            ></span>
+            <span class="context-copy">
+              <strong x-text="$store.dspyRlm.projectTitle"></strong>
+              <small x-text="$store.dspyRlm.selectedChatLabel"></small>
+            </span>
+            <span class="context-chevron" aria-hidden="true">▾</span>
+          </button>
+          <div class="project-chat-menu" x-show="projectChatsOpen" style="display:none" role="listbox" aria-label="Chats in project">
+            <div class="project-chat-heading">
+              <strong x-text="$store.dspyRlm.projectTitle"></strong>
+              <small x-text="$store.dspyRlm.projectChatCountLabel"></small>
+            </div>
+            <template x-for="chat in $store.dspyRlm.projectChats" :key="chat.id">
+              <button
+                type="button"
+                class="project-chat-option"
+                :class="{ 'is-selected': chat.id === $store.dspyRlm.contextId }"
+                @click="$store.dspyRlm.selectProjectChat(chat.id); projectChatsOpen = false"
+                role="option"
+                :aria-selected="(chat.id === $store.dspyRlm.contextId).toString()"
+              >
+                <span x-text="chat.label"></span>
+                <small x-show="chat.id === $store.dspyRlm.contextId">Selected</small>
+              </button>
+            </template>
+          </div>
+        </div>
         <div class="notice" x-show="$store.dspyRlm.lastErrorCode">
           <strong x-text="$store.dspyRlm.errorCopy.title"></strong>
           <span x-text="$store.dspyRlm.errorCopy.message"></span>
@@ -467,8 +499,29 @@
       #a0si-operator .button:disabled { opacity:.42; cursor:not-allowed; }
       #a0si-operator .text-button { border:0; background:none; color:var(--a0si-accent); }
       #a0si-operator .context-band { margin:20px 0 12px; padding:12px 14px; border:1px solid var(--a0si-line); border-radius:12px; background:rgba(1,7,15,.44); }
-      #a0si-operator .context-band label,
       #a0si-operator .filter { display:flex; align-items:center; gap:10px; min-width:0; color:var(--a0si-soft); }
+      #a0si-operator .context-picker { position:relative; display:grid; grid-template-columns:auto minmax(220px,360px); align-items:center; gap:10px; min-width:0; color:var(--a0si-soft); }
+      #a0si-operator .context-label { color:var(--a0si-soft); }
+      #a0si-operator .project-context-button,
+      #a0si-operator .project-chat-option { appearance:none; height:auto; border:1px solid var(--a0si-line); color:var(--a0si-ink); background:#091427; cursor:pointer; }
+      #a0si-operator .project-context-button { display:flex; align-items:center; gap:10px; width:100%; min-width:0; padding:8px 10px; border-radius:8px; text-align:left; }
+      #a0si-operator .project-context-button:hover,
+      #a0si-operator .project-chat-option:hover { border-color:var(--a0si-line-strong); background:rgba(142,171,255,.1); }
+      #a0si-operator .project-color-dot { width:11px; height:11px; flex:0 0 auto; border-radius:50%; box-shadow:0 0 0 2px rgba(255,255,255,.08); }
+      #a0si-operator .project-color-dot.is-empty { border:1px solid var(--a0si-line-strong); box-shadow:none; }
+      #a0si-operator .context-copy { display:grid; flex:1 1 auto; min-width:0; gap:2px; }
+      #a0si-operator .context-copy strong,
+      #a0si-operator .context-copy small { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      #a0si-operator .context-copy small,
+      #a0si-operator .project-chat-heading small,
+      #a0si-operator .project-chat-option small { color:var(--a0si-soft); }
+      #a0si-operator .context-chevron { flex:0 0 auto; color:var(--a0si-soft); }
+      #a0si-operator .project-chat-menu { position:absolute; z-index:30; top:calc(100% + 8px); right:0; width:min(360px,calc(100vw - 72px)); max-height:280px; overflow-y:auto; padding:8px; border:1px solid var(--a0si-line-strong); border-radius:10px; background:#071222; box-shadow:0 18px 42px rgba(0,0,0,.46); }
+      #a0si-operator .project-chat-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; padding:6px 7px 10px; }
+      #a0si-operator .project-chat-heading strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      #a0si-operator .project-chat-option { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-width:0; margin-top:4px; padding:9px 10px; border-radius:7px; text-align:left; }
+      #a0si-operator .project-chat-option > span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      #a0si-operator .project-chat-option.is-selected { border-color:var(--a0si-accent); background:rgba(142,171,255,.14); }
       #a0si-operator input,
       #a0si-operator select { min-width:0; color:var(--a0si-ink); border:1px solid var(--a0si-line); background:#091427; border-radius:7px; padding:9px 11px; }
       #a0si-operator .notice { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; color:var(--a0si-warn); }
@@ -483,10 +536,13 @@
       #a0si-operator .axis-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:12px; }
       #a0si-operator .axis-card,
       #a0si-operator .panel { min-width:0; border:1px solid var(--a0si-line); border-radius:13px; background:linear-gradient(145deg,var(--a0si-panel-raised),var(--a0si-panel)); box-shadow:0 14px 34px rgba(0,0,0,.18); }
-      #a0si-operator .axis-card { display:flex; flex-direction:column; gap:6px; min-height:108px; padding:15px; }
+      #a0si-operator .axis-card { display:flex; flex-direction:column; gap:6px; min-height:108px; padding:15px; overflow:hidden; }
+      #a0si-operator .axis-card > * { min-width:0; max-width:100%; }
       #a0si-operator .axis-card span,
       #a0si-operator .axis-card small { color:var(--a0si-soft); }
       #a0si-operator .axis-card strong { margin-top:auto; font-family:Baskerville,"Iowan Old Style",serif; font-size:21px; line-height:1.05; }
+      #a0si-operator .axis-card strong,
+      #a0si-operator .axis-card small { display:block; white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
       #a0si-operator .panel {
         display:block;
         width:auto;
@@ -559,8 +615,8 @@
         #a0si-operator .context-band,
         #a0si-operator .view-heading,
         #a0si-operator .panel-title-row { align-items:flex-start; flex-direction:column; }
-        #a0si-operator .context-band label { width:100%; }
-        #a0si-operator .context-band input { width:100%; }
+        #a0si-operator .context-picker { width:100%; grid-template-columns:1fr; }
+        #a0si-operator .project-chat-menu { left:0; right:auto; width:100%; }
         #a0si-operator .axis-grid,
         #a0si-operator .candidate-list,
         #a0si-operator .metric-grid { grid-template-columns:1fr; }
