@@ -10,7 +10,7 @@ monitor, and rollback coordinators.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Sequence
 
 from . import prompt_artifacts, state, trace
@@ -41,6 +41,16 @@ class AutomationSettings:
     @property
     def requests_automatic_activation(self) -> bool:
         return self.mode == "autopilot"
+
+
+@dataclass(frozen=True, slots=True)
+class OptimizationProgress:
+    state: str
+    total_loop_count: int
+    completed_loops: int
+    required_loops: int
+    remaining_loops: int
+    cooldown_remaining_seconds: int
 
 
 def settings_from_config(config: Mapping[str, Any] | None) -> AutomationSettings:
@@ -183,6 +193,60 @@ def _candidate_generation_enabled(config: Mapping[str, Any]) -> bool:
     )
 
 
+def optimization_progress(
+    context_ref: str,
+    config: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+) -> OptimizationProgress:
+    """Project the next per-chat scheduling threshold without mutation."""
+
+    optimization = config.get("optimization")
+    optimization = optimization if isinstance(optimization, Mapping) else {}
+    try:
+        interval = max(1, int(optimization.get("auto_optimize_interval_messages", 12)))
+        cooldown_hours = max(0, int(optimization.get("cooldown_hours", 6)))
+    except (TypeError, ValueError):
+        return OptimizationProgress("unavailable", 0, 0, 1, 1, 0)
+
+    summary = trace.summarize_context(context_ref, limit=2_000_000)
+    loop_count = max(0, int(summary.get("loop_count", 0) or 0))
+    context_state = state.load_context_state(context_ref)
+    last_trigger_count = max(
+        0, int(context_state.get("autopilot_last_trigger_loop_count", 0) or 0)
+    )
+    loops_since_trigger = max(0, loop_count - last_trigger_count)
+    completed = min(interval, loops_since_trigger)
+    remaining = max(0, interval - loops_since_trigger)
+    cooldown_remaining = 0
+
+    last_trigger_at = context_state.get("autopilot_last_trigger_at")
+    if remaining == 0 and cooldown_hours and isinstance(last_trigger_at, str):
+        try:
+            previous = datetime.fromisoformat(last_trigger_at.replace("Z", "+00:00"))
+            if previous.tzinfo is None:
+                previous = previous.replace(tzinfo=timezone.utc)
+            deadline = previous.astimezone(timezone.utc) + timedelta(hours=cooldown_hours)
+            seconds = (deadline - (now or datetime.now(timezone.utc))).total_seconds()
+            cooldown_remaining = max(0, int(seconds + 0.999))
+        except ValueError:
+            cooldown_remaining = 0
+
+    progress_state = (
+        "collecting"
+        if remaining
+        else "cooldown" if cooldown_remaining else "ready"
+    )
+    return OptimizationProgress(
+        state=progress_state,
+        total_loop_count=loop_count,
+        completed_loops=completed,
+        required_loops=interval,
+        remaining_loops=remaining,
+        cooldown_remaining_seconds=cooldown_remaining,
+    )
+
+
 def _target_contexts(*, agent: object, context_ref: str, scope: str) -> tuple[str, ...]:
     if scope != "project":
         return (context_ref,)
@@ -203,33 +267,14 @@ def _target_contexts(*, agent: object, context_ref: str, scope: str) -> tuple[st
 def _maybe_schedule_context(
     context_ref: str, config: Mapping[str, Any]
 ) -> dict[str, Any] | None:
-    optimization = config.get("optimization")
-    optimization = optimization if isinstance(optimization, Mapping) else {}
-    try:
-        interval = max(1, int(optimization.get("auto_optimize_interval_messages", 12)))
-        cooldown_hours = max(0, int(optimization.get("cooldown_hours", 6)))
-    except (TypeError, ValueError):
+    progress = optimization_progress(context_ref, config)
+    if progress.state != "ready":
         return None
-    summary = trace.summarize_context(context_ref, limit=2_000_000)
-    loop_count = int(summary.get("loop_count", 0) or 0)
-    context_state = state.load_context_state(context_ref)
-    last_trigger_count = int(context_state.get("autopilot_last_trigger_loop_count", 0) or 0)
-    if loop_count < interval or loop_count - last_trigger_count < interval:
-        return None
-    last_trigger_at = context_state.get("autopilot_last_trigger_at")
-    if cooldown_hours and isinstance(last_trigger_at, str):
-        try:
-            previous = datetime.fromisoformat(last_trigger_at.replace("Z", "+00:00"))
-            elapsed = datetime.now(timezone.utc) - previous.astimezone(timezone.utc)
-            if elapsed.total_seconds() < cooldown_hours * 3_600:
-                return None
-        except ValueError:
-            pass
     result = schedule_optimization_job(context_ref, dict(config), force=False)
     state._store_for_root().set_context_state(
         context_ref,
         {
-            "autopilot_last_trigger_loop_count": loop_count,
+            "autopilot_last_trigger_loop_count": progress.total_loop_count,
             "autopilot_last_trigger_at": datetime.now(timezone.utc)
             .replace(microsecond=0)
             .isoformat()
@@ -246,8 +291,10 @@ __all__ = [
     "AUTOMATION_SCOPES",
     "RISK_PROFILES",
     "AutomationSettings",
+    "OptimizationProgress",
     "capture_system_prompt",
     "observe_loop_and_schedule",
+    "optimization_progress",
     "record_tool_metadata",
     "settings_from_config",
 ]

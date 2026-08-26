@@ -117,6 +117,23 @@
             </dl>
           </div>
 
+          <div class="automation-next" :class="`is-${$store.dspyRlm.automation.next_optimization.state}`" role="status" aria-live="polite">
+            <div class="automation-next-copy">
+              <strong>Next optimization</strong>
+              <span x-text="$store.dspyRlm.nextOptimizationLabel"></span>
+            </div>
+            <div
+              class="automation-next-track"
+              role="progressbar"
+              aria-label="Progress toward the next optimization"
+              aria-valuemin="0"
+              :aria-valuenow="$store.dspyRlm.automation.next_optimization.completed_loops"
+              :aria-valuemax="$store.dspyRlm.automation.next_optimization.required_loops"
+            >
+              <span :style="`width:${$store.dspyRlm.nextOptimizationPercent}%`"></span>
+            </div>
+          </div>
+
           <div class="automation-metrics">
             <div><span>Observations</span><strong x-text="$store.dspyRlm.automation.counts.observations"></strong></div>
             <div><span>Queued work</span><strong x-text="$store.dspyRlm.automation.counts.queued_work"></strong></div>
@@ -627,6 +644,15 @@
       #a0si-operator .automation-worker-facts { display:grid; min-width:min(280px,40%); margin:0; }
       #a0si-operator .automation-worker-facts > div { display:grid; grid-template-columns:auto minmax(0,1fr); gap:12px; padding:5px 0; }
       #a0si-operator .automation-worker-facts dd { font-size:12px; }
+      #a0si-operator .automation-next { display:grid; gap:9px; min-width:0; padding:12px 14px; border:1px solid rgba(142,171,255,.25); border-radius:10px; background:rgba(2,10,22,.36); }
+      #a0si-operator .automation-next-copy { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:0; }
+      #a0si-operator .automation-next-copy strong { color:var(--a0si-soft); font-size:12px; font-weight:650; }
+      #a0si-operator .automation-next-copy span { min-width:0; color:var(--a0si-text); font-size:13px; font-weight:750; text-align:right; overflow-wrap:anywhere; }
+      #a0si-operator .automation-next-track { height:5px; overflow:hidden; border-radius:999px; background:rgba(142,171,255,.13); }
+      #a0si-operator .automation-next-track > span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#7798ff,var(--a0si-mint)); box-shadow:0 0 10px rgba(85,224,180,.24); transition:width .24s ease; }
+      #a0si-operator .automation-next.is-cooldown .automation-next-track > span { background:#f1c86d; }
+      #a0si-operator .automation-next.is-disabled .automation-next-track > span,
+      #a0si-operator .automation-next.is-unavailable .automation-next-track > span { background:var(--a0si-soft); box-shadow:none; }
       #a0si-operator .automation-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
       #a0si-operator .automation-metrics > div { display:grid; gap:5px; min-width:0; padding:12px; border:1px solid var(--a0si-line); border-radius:9px; background:rgba(255,255,255,.035); }
       #a0si-operator .automation-metrics span { color:var(--a0si-soft); font-size:12px; }
@@ -734,6 +760,8 @@
         #a0si-operator .live-controls,
         #a0si-operator .automation-hero { width:100%; align-items:flex-start; flex-direction:column; }
         #a0si-operator .automation-worker-facts { width:100%; min-width:0; }
+        #a0si-operator .automation-next-copy { align-items:flex-start; flex-direction:column; gap:4px; }
+        #a0si-operator .automation-next-copy span { text-align:left; }
         #a0si-operator .context-picker { width:100%; grid-template-columns:1fr; }
         #a0si-operator .project-chat-menu { left:0; right:auto; width:100%; }
         #a0si-operator .axis-grid,

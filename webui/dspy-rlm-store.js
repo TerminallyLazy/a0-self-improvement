@@ -96,6 +96,13 @@ function unavailableAutomation() {
     promotion: { state: "blocked", gates: [] },
     counts: { observations: 0, candidates: 0, receipts: 0, queued_work: 0 },
     workers: { desired: 0, running: 0, state: "unavailable" },
+    next_optimization: {
+      state: "unavailable",
+      completed_loops: 0,
+      required_loops: 1,
+      remaining_loops: 1,
+      cooldown_remaining_seconds: 0,
+    },
     recent_activity: [],
     conversation_content: "excluded",
   };
@@ -116,6 +123,10 @@ function normalizeAutomation(raw, contextId) {
   });
   const counts = raw.counts && typeof raw.counts === "object" ? raw.counts : {};
   const workers = raw.workers && typeof raw.workers === "object" ? raw.workers : {};
+  const next = raw.next_optimization && typeof raw.next_optimization === "object"
+    ? raw.next_optimization : {};
+  const requiredLoops = Math.max(1, safeCount(next.required_loops));
+  const completedLoops = Math.min(requiredLoops, safeCount(next.completed_loops));
   return {
     observed_at: safeTimestamp(raw.observed_at),
     mode: ["observe", "review", "autopilot"].includes(raw.mode) ? raw.mode : "observe",
@@ -136,6 +147,14 @@ function normalizeAutomation(raw, contextId) {
       desired: safeCount(workers.desired),
       running: safeCount(workers.running),
       state: safeToken(workers.state),
+    },
+    next_optimization: {
+      state: ["collecting", "ready", "queued", "cooldown", "disabled", "unavailable"].includes(next.state)
+        ? next.state : "unavailable",
+      completed_loops: completedLoops,
+      required_loops: requiredLoops,
+      remaining_loops: Math.max(0, requiredLoops - completedLoops),
+      cooldown_remaining_seconds: safeCount(next.cooldown_remaining_seconds),
     },
     recent_activity: Array.isArray(raw.recent_activity) ? raw.recent_activity.slice(0, 10).map((item) => ({
       activity_id: safeToken(item?.activity_id),
@@ -570,6 +589,27 @@ export const store = createStore("dspyRlm", {
     if (this.automation.scope !== "project") return "Current chat";
     const count = this.automation.context_count;
     return `Project scope · ${count} ${count === 1 ? "chat" : "chats"}`;
+  },
+
+  get nextOptimizationLabel() {
+    const next = this.automation.next_optimization;
+    if (next.state === "queued") return "Work queued — workers starting";
+    if (next.state === "disabled") return "Enable Review or Autopilot";
+    if (next.state === "unavailable") return "Progress unavailable";
+    if (next.state === "cooldown") {
+      const minutes = Math.max(1, Math.ceil(next.cooldown_remaining_seconds / 60));
+      const wait = minutes >= 60 ? `${Math.ceil(minutes / 60)}h` : `${minutes}m`;
+      return `${next.completed_loops}/${next.required_loops} loops — cooldown ${wait}`;
+    }
+    if (next.state === "ready") {
+      return `${next.completed_loops}/${next.required_loops} loops — ready to queue`;
+    }
+    return `${next.completed_loops}/${next.required_loops} loops — ${next.remaining_loops} remaining`;
+  },
+
+  get nextOptimizationPercent() {
+    const next = this.automation.next_optimization;
+    return Math.min(100, Math.round((next.completed_loops / next.required_loops) * 100));
   },
 
   get blockedAutomationGates() {

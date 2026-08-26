@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from usr.plugins.dspy_rlm.api import autopilot_status
@@ -129,6 +130,35 @@ def test_project_loop_schedules_each_eligible_chat_without_conversation_text(
     ]
 
 
+def test_optimization_progress_reports_loops_remaining(monkeypatch) -> None:
+    monkeypatch.setattr(
+        autopilot.trace,
+        "summarize_context",
+        lambda _context, **_kwargs: {"loop_count": 20},
+    )
+    monkeypatch.setattr(
+        autopilot.state,
+        "load_context_state",
+        lambda _context: {"autopilot_last_trigger_loop_count": 12},
+    )
+
+    progress = autopilot.optimization_progress(
+        "chat-main",
+        {
+            "optimization": {
+                "auto_optimize_interval_messages": 12,
+                "cooldown_hours": 6,
+            }
+        },
+        now=datetime(2026, 8, 26, tzinfo=timezone.utc),
+    )
+
+    assert progress.completed_loops == 8
+    assert progress.required_loops == 12
+    assert progress.remaining_loops == 4
+    assert progress.state == "collecting"
+
+
 def test_live_status_separates_generation_from_promotion_authority(monkeypatch) -> None:
     monkeypatch.setattr(
         autopilot_status,
@@ -155,6 +185,13 @@ def test_live_status_separates_generation_from_promotion_authority(monkeypatch) 
         "snapshot",
         lambda _cfg: {"desired": 1, "running": 1},
     )
+    monkeypatch.setattr(
+        autopilot_status.autopilot,
+        "optimization_progress",
+        lambda _context, _cfg: autopilot.OptimizationProgress(
+            "collecting", 8, 8, 12, 4, 0
+        ),
+    )
     configured = config.normalize_config(
         {
             "enabled": True,
@@ -172,6 +209,13 @@ def test_live_status_separates_generation_from_promotion_authority(monkeypatch) 
     assert result["cycle_state"] == "awaiting_authority"
     assert result["context_count"] == 1
     assert result["conversation_content"] == "excluded"
+    assert result["next_optimization"] == {
+        "state": "collecting",
+        "completed_loops": 8,
+        "required_loops": 12,
+        "remaining_loops": 4,
+        "cooldown_remaining_seconds": 0,
+    }
     blocked = {
         item["gate_id"]: item["reason_code"]
         for item in result["promotion"]["gates"]

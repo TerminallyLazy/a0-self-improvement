@@ -10,7 +10,7 @@ from agent import AgentContext
 from helpers.api import ApiHandler, Request, Response
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
-from usr.plugins.dspy_rlm.helpers import dependencies, paths, worker_supervisor
+from usr.plugins.dspy_rlm.helpers import autopilot, dependencies, paths, worker_supervisor
 from usr.plugins.dspy_rlm.helpers.autopilot import settings_from_config
 from usr.plugins.dspy_rlm.helpers.v3.automatic_genesis import project_context_refs
 from usr.plugins.dspy_rlm.helpers.v3.operator_repository import (
@@ -157,6 +157,41 @@ def _v3_runtime(context_refs: tuple[str, ...], *, selected_context_ref: str) -> 
     return result
 
 
+def _next_optimization(
+    context_refs: tuple[str, ...],
+    config: Mapping[str, Any],
+    *,
+    running: int,
+    enabled: bool,
+) -> dict[str, int | str]:
+    if not enabled:
+        return {
+            "state": "disabled",
+            "completed_loops": 0,
+            "required_loops": 1,
+            "remaining_loops": 1,
+            "cooldown_remaining_seconds": 0,
+        }
+    progress = [autopilot.optimization_progress(ref, config) for ref in context_refs]
+    rank = {"ready": 0, "cooldown": 1, "collecting": 2, "unavailable": 3}
+    selected = min(
+        progress,
+        key=lambda item: (
+            rank.get(item.state, 4),
+            item.cooldown_remaining_seconds
+            if item.state == "cooldown"
+            else item.remaining_loops,
+        ),
+    )
+    return {
+        "state": "queued" if running else selected.state,
+        "completed_loops": selected.completed_loops,
+        "required_loops": selected.required_loops,
+        "remaining_loops": selected.remaining_loops,
+        "cooldown_remaining_seconds": selected.cooldown_remaining_seconds,
+    }
+
+
 def project_autopilot_status(
     *, context_ref: str, project_ref: str | None, config: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -229,6 +264,12 @@ def project_autopilot_status(
     generation_ready = all(item["state"] == "ready" for item in generation_gates)
     promotion_ready = all(item["state"] == "ready" for item in promotion_gates)
     running = sum(jobs.get(name, 0) for name in ("pending", "queued", "running"))
+    next_optimization = _next_optimization(
+        context_refs,
+        config,
+        running=running,
+        enabled=bool(config.get("enabled")) and settings.generates_candidates,
+    )
     if not bool(config.get("enabled")):
         cycle_state = "disabled"
     elif settings.mode == "observe":
@@ -280,6 +321,7 @@ def project_autopilot_status(
             "running": int(worker_state.get("running", 0) or 0),
             "state": "ready" if dependency_ready else "blocked",
         },
+        "next_optimization": next_optimization,
         "recent_activity": recent,
         "conversation_content": "excluded",
     }

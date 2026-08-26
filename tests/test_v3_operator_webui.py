@@ -134,6 +134,8 @@ def test_overview_axis_cards_contain_long_projection_reasons() -> None:
 
 def test_overview_exposes_live_autopilot_observability() -> None:
     assert "Closed-loop automation" in MAIN
+    assert "Next optimization" in MAIN
+    assert "nextOptimizationLabel" in STORE
     assert "Automatic promotion" in MAIN
     assert "Recent activity" in MAIN
     assert "autopilot_status" in STORE
