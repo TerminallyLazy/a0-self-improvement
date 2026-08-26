@@ -15,9 +15,9 @@ An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordi
 ## Install and use
 
 1. Install the repository as `usr/plugins/dspy_rlm` or use Agent Zero's Plugin Hub.
-2. Leave the plugin disabled until the local authority and migration state for the target context are ready.
-3. Use `python scripts/a0_local_authority.py --help` for explicit issuer, grant, revocation, and Null Genesis operations. The protocol opens no network listener and issues no default authority.
-4. Enable the plugin and open its dashboard to inspect the six read-only, content-free operator views for a live context.
+2. Assign the chat to an Agent Zero project so parallel-agent contexts share one enrollment boundary.
+3. Enable the plugin. By default it creates only inert Null Genesis scopes for chats in that project. Use `python scripts/a0_local_authority.py --help` only for recovery and advanced local authority operations.
+4. Open the dashboard to inspect the six read-only, content-free operator views for a live context.
 5. Submit mutations only through the signed v3 command contract with an exact context, target, revision, idempotency key, browser-session challenge, and unexpired action-scoped grant.
 
 The projection and command APIs retain Agent Zero authentication and CSRF protections. Reads open only the selected existing safe-store generation in SQLite read-only/query-only mode; they never create, repair, migrate, or fall back. The signed command endpoint dispatches optimize, work cancellation, canary start/stop, activation, rollback, Safety Bypass, monitor conclusion, requalification start/conclusion, feedback, and fixture draft/review/admit/withdraw. Fixture commands resolve opaque content-session handles only through an explicitly provisioned private runtime profile, current-owner custody files, the encrypted vault, and the durable repository ledger; missing custody remains a truthful `503`. A rollback-required monitor or requalification conclusion emits a request-only authority record and leaves the Activation Scope unchanged; the separately signed rollback command remains the sole profile-mutating transition. The retired `/optimize`, `/promote`, and `/rollback` routes return safe `410` responses and perform no mutation.
@@ -93,15 +93,19 @@ uv run --frozen --extra test python -m pytest
 
 The `test` extra contains only pytest, pytest-asyncio, and PyYAML. DSPy, GEPA, model-provider SDKs, and other worker dependencies remain governed by `requirements-gepa.lock` and must stay out of Agent Zero's framework interpreter. CI also parses, but never imports, the exact pinned Agent Zero source contract at `b22a144bf59f15b1516084c9e7b88133ba92c8a9`.
 
-## v3 local authority and Genesis
+## Automatic project Genesis and local recovery
 
-The v3 safe store is never created by startup, status, prompt composition, or an ordinary Agent Zero turn. Use the local-only protocol explicitly:
+When the plugin is enabled, `automatic_project_genesis` defaults to `true`. At message-loop start, before prompt composition, the plugin discovers chat context IDs assigned to the same Agent Zero project and creates any missing revision-zero Null Genesis scopes. This is content-free and byte-inert: it reads only chat IDs and project identifiers, creates a dedicated owner-only local custody directory, and has no enqueue, candidate, promotion, activation, rollback, migration, or content authority. Parallel-agent chats in the project are serialized through one local coordinator lock, so users do not need to run setup commands.
+
+The Settings page exposes **Set up project Genesis automatically** for operators who need to disable this convenience path. Disabling it does not remove existing scopes. The plugin-wide `enabled` gate and the offline-replay gate both stop automatic enrollment before any store or custody write. Chats without an Agent Zero project are not enrolled automatically.
+
+Status and prompt composition remain pure reads. Automatic enrollment may create the pre-cutover v3 store only from the message-loop-start coordinator. Any failure is fail-closed for improvement and never blocks the ordinary Agent Zero chat. The local protocol remains available for recovery and advanced authority management:
 
 ```bash
 python scripts/a0_local_authority.py --help
 ```
 
-Bootstrap the issuer and a separate opaque-reference key, issue an exact context/action-scoped grant, then run `genesis --create-store`. Genesis atomically writes the inert two-slot Null Activation Profile, immutable receipts, command ledger entry, event, and revision-zero scope. Grant inspection, revocation, policy-calibration approval/withdrawal/inspection, migration preflight/start/resume/confirm-cutover/inspection, and Privacy Quarantine export/waiver/deletion-challenge/deletion-begin/deletion-resume/inspection are also local-only. Migration start/resume stop at `awaiting_cutover`; only the explicit confirmation command may CAS the Store Authority Manifest. Quarantine deletion begins by atomically consuming the exact challenge and persisting the deletion intent, then resumes by revalidating the grant and durable intent before unlinking the wrapped key ahead of ciphertext. Inspection makes no physical-overwrite claim. All custody and state paths must be absolute; the command opens no network listener and returns only content-free references.
+Manual `genesis`, `project-genesis`, and issuer bootstrap are recovery/admin paths. Genesis atomically writes the inert two-slot Null Activation Profile, immutable receipts, command ledger entry, event, and revision-zero scope. Grant inspection, revocation, policy-calibration approval/withdrawal/inspection, migration preflight/start/resume/confirm-cutover/inspection, and Privacy Quarantine export/waiver/deletion-challenge/deletion-begin/deletion-resume/inspection remain local-only. Migration start/resume stop at `awaiting_cutover`; only the explicit confirmation command may CAS the Store Authority Manifest. All custody and state paths must be absolute; the command opens no network listener and returns only content-free references.
 
 Genesis is context-scoped. Creating the store and initializing one chat does not initialize another chat. Verify the exact selected context with the read-only readiness command:
 
@@ -112,7 +116,7 @@ python scripts/a0_local_authority.py readiness-inspect \
   --context YOUR_CONTEXT_ID
 ```
 
-`"state":"ready"` means the command opened the runtime-selected store in read-only/query-only mode, verified any Store Authority Manifest and migration receipt binding, and found a valid Activation Scope and two-slot Activation Profile for that exact context. `safe_store_missing` means the pre-cutover store does not exist. `activation_scope_missing` means the store is valid but that context still requires an explicitly granted Genesis command. Any other command failure is fail-closed; do not enable improvement until the underlying authority or store-custody problem is resolved.
+`"state":"ready"` means the command opened the runtime-selected store in read-only/query-only mode, verified any Store Authority Manifest and migration receipt binding, and found a valid Activation Scope and two-slot Activation Profile for that exact context. `safe_store_missing` means automatic setup has not yet run successfully. `activation_scope_missing` means automatic setup is disabled, the chat is not assigned to a project, or automatic enrollment failed; opening a new message loop in that project normally repairs it. Any other command failure is fail-closed; use the manual protocol only if automatic recovery does not succeed.
 
 Parallel agents should be enrolled and checked at the Agent Zero project boundary, not across unrelated chats. Project inspection reads only each chat's context ID and project identifier; it does not read or retain chat content:
 
@@ -124,7 +128,7 @@ python scripts/a0_local_authority.py project-readiness-inspect \
   --project YOUR_PROJECT_ID
 ```
 
-The result is ready only when every currently discovered context in that project has its own valid Activation Scope. Enroll all missing contexts in one explicit local operation with `project-genesis`; the grant directory must already exist and remain operator-only:
+The result is ready only when every currently discovered context in that project has its own valid Activation Scope. Normally, send a message in any chat assigned to the project and automatic enrollment will cover all discovered project chats. For recovery, `project-genesis` can still enroll all missing contexts in one explicit local operation; the grant directory must already exist and remain operator-only:
 
 ```bash
 python scripts/a0_local_authority.py project-genesis \
@@ -145,6 +149,6 @@ python scripts/a0_local_authority.py project-genesis \
   --confirm BOOTSTRAP_PROJECT_GENESIS
 ```
 
-Add `--create-store` only for the first pre-cutover initialization. The command skips contexts that already have an Activation Scope, issues and persists one exact grant for every missing context, and returns only context and receipt references. Re-run `project-readiness-inspect` after adding parallel chats. Activation, commands, receipts, and rollback remain context-bound so one parallel agent cannot silently mutate another.
+Add `--create-store` only for the first pre-cutover manual initialization. The command skips contexts that already have an Activation Scope, issues and persists one exact grant for every missing context, and returns only context and receipt references. Activation, commands, receipts, and rollback remain context-bound so one parallel agent cannot silently mutate another.
 
 Privacy Quarantine cryptography is pinned separately in `requirements-migration.lock`. It belongs only in the local migration environment; it is intentionally absent from both Agent Zero's framework interpreter and the normal DSPy/GEPA worker environment.

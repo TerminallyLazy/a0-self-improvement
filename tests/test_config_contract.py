@@ -18,6 +18,7 @@ def _checked_in_defaults() -> dict:
 def _assert_inert_v2_defaults(config: dict) -> None:
     assert config["config_version"] == 2
     assert config["enabled"] is False
+    assert config["automatic_project_genesis"] is True
     assert config["instrumentation_enabled"] is False
     assert config["optimization"]["enabled"] is False
     assert config["optimization"]["auto_optimize"] is False
@@ -63,6 +64,7 @@ def test_settings_switches_bridge_stable_controls_to_canonical_optimization_keys
     markup = (PLUGIN_ROOT / "webui" / "config.html").read_text(encoding="utf-8")
 
     for binding in (
+        'x-model="config.automatic_project_genesis"',
         'x-model="config.auto_optimize_enabled"',
         'x-model="config.enable_dspy_optimizer"',
         'x-model="config.enable_replay_audit"',
@@ -89,6 +91,21 @@ def test_settings_switches_bridge_stable_controls_to_canonical_optimization_keys
         "config.enable_dspy_optimizer = enabled;",
     ):
         assert bridge in markup
+
+    assert "config.automatic_project_genesis = toBool(config.automatic_project_genesis, true);" in markup
+
+
+def test_automatic_project_genesis_persists_and_falls_closed_without_defaults(
+    monkeypatch,
+) -> None:
+    enabled = config_module.normalize_config({"automatic_project_genesis": True})
+    disabled = config_module.normalize_config({"automatic_project_genesis": False})
+
+    assert enabled["automatic_project_genesis"] is True
+    assert disabled["automatic_project_genesis"] is False
+
+    monkeypatch.setattr(config_module, "_load_default", lambda: {})
+    assert config_module.normalize_config(None)["automatic_project_genesis"] is False
 
 
 def test_operating_profile_highlight_follows_the_selected_preset() -> None:

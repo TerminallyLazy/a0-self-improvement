@@ -64,7 +64,9 @@ OPERATOR_MUTATION_RECEIPT_SCHEMA_ID = (
     "a0.self-improvement.operator-mutation-receipt.v1"
 )
 
-GENESIS_REASON_CODES = frozenset({"operator_requested", "recovery_requested"})
+GENESIS_REASON_CODES = frozenset(
+    {"operator_requested", "recovery_requested", "automatic_project_enrollment"}
+)
 
 _ACTION = AuthorityAction.INITIALIZE_GENESIS.value
 _PURPOSE = AuthorityPurpose.GENESIS.value

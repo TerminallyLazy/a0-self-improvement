@@ -429,6 +429,7 @@
         });
 
         config.enabled = toBool(config.enabled, false);
+        config.automatic_project_genesis = toBool(config.automatic_project_genesis, true);
         config.instrumentation_enabled = toBool(config.instrumentation_enabled, true);
         config.status_refresh_seconds = toInt(config.status_refresh_seconds, 8, 1, 120);
         config.trace_enabled = toBool(config.trace_enabled, config.instrumentation_enabled);
@@ -760,6 +761,13 @@
                   <span>Plugin enabled</span>
                   <label class="toggle"><input type="checkbox" x-model="config.enabled" /><span class="slider"></span></label>
                 </label>
+              </div>
+              <div class="dspy-field">
+                <label>
+                  <span>Set up project Genesis automatically</span>
+                  <label class="toggle"><input type="checkbox" x-model="config.automatic_project_genesis" /><span class="slider"></span></label>
+                </label>
+                <small>Creates only an inert revision-zero scope for chats in the active project. It cannot promote, activate, or roll back improvements.</small>
               </div>
               <div class="dspy-field">
                 <label>

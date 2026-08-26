@@ -7,9 +7,9 @@ This is the implementation authority for the v3 redesign of the standalone A0 Se
 - Canonical source: TerminallyLazy/a0-self-improvement
 - Planning baseline: f5d319db98cc6f797811cc0035f88bcb7d9311ec
 - Initial Agent Zero compatibility target: b22a144bf59f15b1516084c9e7b88133ba92c8a9
-- Current plugin version: 2.0.5
+- Current plugin version: 2.0.6
 - Target breaking release: 2.0.0, preceded by 2.0.0-rc.N releases
-- Architecture authority: accepted ADRs 0001 through 0010
+- Architecture authority: accepted ADRs 0001 through 0011
 - Ubiquitous language authority: CONTEXT.md
 
 The earlier 2026-08-25 implementation plan and design are technical inputs, not instruction or decision sources. This handoff replaces the previous implementation specification where they disagree.
@@ -314,7 +314,7 @@ All services are plugin modules in one single-host deployment, not separately de
 
 ### Operator Authority Service
 
-- Run as a local-only trust root with explicit one-time issuer bootstrap; there is no web bootstrap, implicit administrator, or default grant.
+- Run privileged mutation authority as a local-only trust root. One dedicated owner-only convenience issuer may be bootstrapped automatically and may issue only exact, short-lived `initialize_genesis` grants for inert revision-zero project enrollment. There is no implicit administrator or default grant for work, content, migration, canary, promotion, activation, rollback, or any other mutation.
 - Bind immutable issuer profiles and signed grants to the exact authenticated principal when the framework supplies one. If a stable principal or local capability binding is unavailable, mutation capability is unavailable.
 - Solely own issuance, expiry, renewal of renewable grant classes, revocation, and safe projection of Operator Authority Grants, Operator Content Sessions, Fixture Use Grants, Model Use Grants, and Policy Calibration approvals.
 - Operator Content Sessions are never renewed. They expire or are revoked; a fresh local step-up must issue a new session with a new identity.
@@ -685,7 +685,7 @@ Implement these as executable Given-When-Then scenarios before their internal mo
 ### Source and pure-read boundary
 
 - Given a clean standalone clone, when tests are collected and run, then plugin imports resolve without requiring a usr/plugins installation layout.
-- Given the plugin is installed but disabled, when startup, an ordinary Agent Zero turn, prompt composition, loop completion, or status occurs, then there is no capture, injection, Genesis, migration, repair, enqueue, store mutation, or worker activity and ordinary behavior is unchanged.
+- Given the plugin is installed but disabled, when startup, an ordinary Agent Zero turn, prompt composition, loop completion, or status occurs, then there is no capture, injection, Genesis, migration, repair, enqueue, store mutation, or worker activity and ordinary behavior is unchanged. When enabled with automatic project Genesis, the message-loop-start coordinator may create only the pre-cutover store and inert revision-zero scopes for contexts assigned to the same project.
 - Given a new or disabled context, when public status is read repeatedly, then no file, database row, Genesis profile, cache, process, or worker is created.
 - Given two typed Null Artifacts in Genesis, when Runtime Composer forms instructions, then the original Agent Zero prompt is byte-equivalent at the plugin seam.
 - Given corrupt, unknown, or drifted v3 state, when Runtime Composer reads it, then improvement fails closed and ordinary Agent Zero remains available.
@@ -754,7 +754,7 @@ Implement these as executable Given-When-Then scenarios before their internal mo
 ### API and WebUI
 
 - Given missing authentication, allowed-origin CSRF, Operator Authority, content session, or context scope, when an operation is requested, then it is denied without cross-context disclosure.
-- Given no explicit local issuer bootstrap, when any grant or mutation is requested, then authority is unavailable and no implicit administrator/default grant is created.
+- Given no explicit local issuer bootstrap, when any mutation other than enabled automatic project Genesis is requested, then authority is unavailable and no implicit administrator/default grant is created. Automatic project Genesis uses a separate narrow issuer and cannot authorize another action.
 - Given an issuer-signed grant or content session, when subject, context, action, purpose, target, expiry, session binding, or revocation differs, then use is denied; issuance, permitted grant renewal, use, expiry, and revocation remain receipt-backed.
 - Given an expired or revoked Operator Content Session, when content work continues, then renewal is refused and a fresh local step-up must issue a new session identity.
 - Given a valid mutation, when handled, then an immutable Operator Mutation Receipt binds idempotency, authority, target, observed/resulting revision, policy, action, and bounded reasons.
@@ -786,7 +786,7 @@ Each slice ends in a mergeable vertical proof. No activation occurs before an ap
 - Freeze schema registry, canonicalization, Opaque Reference, public projection, reason-code, command, and receipt contracts.
 - Implement immutable records, links, events, equivalence insertion, append-only enforcement, and a pure read-only repository.
 - Implement typed Null Artifacts, Activation Profiles, one Activation Scope, Genesis CAS, and pure Runtime Composer.
-- Implement local issuer bootstrap, strict authority/grant records and revocation, the command/idempotency ledger, and a minimal content-free authority projection. Issue no default grant.
+- Implement local issuer bootstrap, strict authority/grant records and revocation, the command/idempotency ledger, and a minimal content-free authority projection. The only default-on grant path is short-lived, project-bound, and limited by its coordinator to inert revision-zero Genesis.
 - Prove zero behavioral change and zero write-on-read.
 
 ### Slice 2 — privacy migration
@@ -927,7 +927,7 @@ The 2.0.0 release is a breaking state-authority migration, not an in-place featu
 
 Implementation may begin when:
 
-- ADRs 0001 through 0010 are accepted;
+- ADRs 0001 through 0011 are accepted;
 - CONTEXT.md contains the shared terms used here;
 - this handoff replaces the stale specification;
 - every slice has an executable Outside-In boundary;

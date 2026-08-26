@@ -249,6 +249,9 @@ def normalize_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "schema_version": "2",
         "config_version": 2,
         "enabled": _as_bool(cfg.get("enabled"), False),
+        "automatic_project_genesis": _as_bool(
+            cfg.get("automatic_project_genesis", False), False
+        ),
         # These fallbacks also apply when the checked-in default file cannot be
         # read.  They must therefore be inert rather than convenience-on.
         "instrumentation_enabled": _as_bool(cfg.get("instrumentation_enabled", False), False),
