@@ -3,6 +3,7 @@ import { callJsonApi } from "/js/api.js";
 import { getContext } from "/index.js";
 
 const API_BASE = "/plugins/dspy_rlm";
+const PUBLIC_STATUS_SCHEMA = "a0.public-status.v1";
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
 
@@ -509,6 +510,35 @@ export const store = createStore("dspyRlm", {
     }
     this.loading = true;
     this.lastErrorCode = "";
+    let publicStatus;
+    try {
+      publicStatus = await callJsonApi(`${API_BASE}/status`, {
+        context_id: this.contextId,
+      });
+    } catch (_) {
+      this.lastErrorCode = "status_unavailable";
+      this.loaded = true;
+      this.loading = false;
+      return;
+    }
+    const projectedContext = safeToken(publicStatus?.context_ref, "");
+    const pluginState = safeToken(publicStatus?.plugin_state, "unavailable");
+    if (publicStatus?.schema !== PUBLIC_STATUS_SCHEMA || projectedContext !== this.contextId) {
+      this.lastErrorCode = "status_invalid";
+      this.loaded = true;
+      this.loading = false;
+      return;
+    }
+    if (pluginState !== "ready") {
+      const reasons = safeCodes(publicStatus?.activation_scope?.reason_codes);
+      this.lastErrorCode = reasons[0] || `plugin_${pluginState}`;
+      this.projections = Object.fromEntries(
+        VIEW_IDS.map((viewId) => [viewId, UNAVAILABLE_PROJECTIONS[viewId]()]),
+      );
+      this.loaded = true;
+      this.loading = false;
+      return;
+    }
     const results = await Promise.allSettled(VIEW_IDS.map(async (viewId) => {
       const payload = await callJsonApi(`${API_BASE}/operator_projection`, {
         context_id: this.contextId,

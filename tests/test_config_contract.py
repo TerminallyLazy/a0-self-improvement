@@ -59,30 +59,36 @@ def test_checked_in_default_config_has_no_conflicting_legacy_aliases() -> None:
     assert forbidden_legacy_keys.isdisjoint(defaults)
 
 
-def test_settings_switches_bind_canonical_optimization_keys_and_sync_aliases() -> None:
+def test_settings_switches_bridge_stable_controls_to_canonical_optimization_keys() -> None:
     markup = (PLUGIN_ROOT / "webui" / "config.html").read_text(encoding="utf-8")
 
     for binding in (
-        'x-model="config.optimization.auto_optimize"',
-        'x-model="config.optimization.enable_dspy_optimizer"',
-        'x-model="config.optimization.enable_replay_audit"',
-    ):
-        assert binding in markup
-
-    for legacy_binding in (
         'x-model="config.auto_optimize_enabled"',
         'x-model="config.enable_dspy_optimizer"',
         'x-model="config.enable_replay_audit"',
     ):
-        assert legacy_binding not in markup
+        assert binding in markup
 
-    for mirrored_alias in (
+    for unsafe_nested_watcher in (
+        "$watch(() => config.optimization.auto_optimize",
+        "$watch(() => config.optimization.enable_dspy_optimizer",
+        "$watch(() => config.optimization.enable_replay_audit",
+    ):
+        assert unsafe_nested_watcher not in markup
+
+    for bridge in (
+        "$watch(() => config.auto_optimize_enabled",
+        "$watch(() => config.enable_dspy_optimizer",
+        "$watch(() => config.enable_replay_audit",
+        "optimizationSection.auto_optimize = enabled;",
+        "optimizationSection.enable_dspy_optimizer = enabled;",
+        "optimizationSection.enable_replay_audit = toBool(value, false);",
         "config.auto_optimize_enabled = enabled;",
         "config.auto_optimize = enabled;",
         "config.auto_enqueue = enabled;",
         "config.enable_dspy_optimizer = enabled;",
     ):
-        assert mirrored_alias in markup
+        assert bridge in markup
 
 
 def test_enabled_optimization_switches_survive_json_round_trip() -> None:

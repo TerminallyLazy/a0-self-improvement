@@ -66,6 +66,16 @@ def test_store_consumes_only_exact_operator_projection_schemas() -> None:
         assert forbidden not in STORE
 
 
+def test_store_preflights_public_status_before_requesting_operator_views() -> None:
+    status_call = STORE.index('`${API_BASE}/status`')
+    projection_call = STORE.index('`${API_BASE}/operator_projection`')
+
+    assert status_call < projection_call
+    assert 'const PUBLIC_STATUS_SCHEMA = "a0.public-status.v1";' in STORE
+    assert 'if (pluginState !== "ready")' in STORE
+    assert "publicStatus?.activation_scope?.reason_codes" in STORE
+
+
 def test_mutation_and_diagnostic_authority_stay_fail_closed() -> None:
     assert 'action.state === "eligible"' in STORE
     assert "diagnostic_canary_no_activation_authority" in MAIN

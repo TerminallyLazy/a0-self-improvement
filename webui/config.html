@@ -82,12 +82,8 @@
             enable_replay_audit: true,
             max_replay_depth: 6,
           });
-          const optimization = this._ensureSection(config, 'optimization', {
-            auto_optimize: false,
-          });
-
           if (level === 'safe') {
-            optimization.auto_optimize = true;
+            config.auto_optimize_enabled = true;
             config.optimization_interval_messages = 24;
             config.optimization_min_samples = 24;
             config.optimization_cooldown_hours = 12;
@@ -109,7 +105,7 @@
             evaluator.risk_threshold = 0.20;
             evaluator.enable_replay_audit = true;
           } else if (level === 'balanced') {
-            optimization.auto_optimize = true;
+            config.auto_optimize_enabled = true;
             config.optimization_interval_messages = 12;
             config.optimization_min_samples = 10;
             config.optimization_cooldown_hours = 6;
@@ -125,7 +121,7 @@
             config.scheduler_heartbeat_seconds = 8;
             evaluator.risk_threshold = 0.25;
           } else if (level === 'aggressive') {
-            optimization.auto_optimize = true;
+            config.auto_optimize_enabled = true;
             config.optimization_interval_messages = 6;
             config.optimization_min_samples = 6;
             config.optimization_cooldown_hours = 2;
@@ -147,7 +143,6 @@
 
           config.matrix = matrix;
           config.evaluator = evaluator;
-          config.optimization = optimization;
         },
       }"
       x-init="
@@ -692,7 +687,7 @@
           scheduler.enforce_single_tenant_per_context = toBool(value, false);
         });
 
-        $watch(() => config.optimization.auto_optimize, (value) => {
+        $watch(() => config.auto_optimize_enabled, (value) => {
           const enabled = toBool(value, false);
           const optimizationSection = ensureOptimizationSection();
           optimizationSection.auto_optimize = enabled;
@@ -700,11 +695,15 @@
           config.auto_optimize = enabled;
           config.auto_enqueue = enabled;
         });
-        $watch(() => config.optimization.enable_dspy_optimizer, (value) => {
+        $watch(() => config.enable_dspy_optimizer, (value) => {
           const enabled = toBool(value, false);
           const optimizationSection = ensureOptimizationSection();
           optimizationSection.enable_dspy_optimizer = enabled;
           config.enable_dspy_optimizer = enabled;
+        });
+        $watch(() => config.enable_replay_audit, (value) => {
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.enable_replay_audit = toBool(value, false);
         });
         $watch(() => config.gepa_steps, (value) => {
           const mapped = toInt(value, 3, 1, 128);
@@ -804,7 +803,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Auto optimize</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.optimization.auto_optimize" /><span class="slider"></span></label>
+                  <label class="toggle"><input type="checkbox" x-model="config.auto_optimize_enabled" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field inline">
@@ -845,7 +844,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Enable GEPA</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.optimization.enable_dspy_optimizer" /><span class="slider"></span></label>
+                  <label class="toggle"><input type="checkbox" x-model="config.enable_dspy_optimizer" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field inline">
@@ -893,7 +892,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Enable replay audit</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.optimization.enable_replay_audit" /><span class="slider"></span></label>
+                  <label class="toggle"><input type="checkbox" x-model="config.enable_replay_audit" /><span class="slider"></span></label>
                 </label>
               </div>
             </div>
