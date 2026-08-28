@@ -88,6 +88,7 @@
 
           this.selectedPreset = level;
           const automation = this._ensureSection(config, 'automation', {});
+          const optimization = this._ensureSection(config, 'optimization', {});
           automation.risk_profile = level;
 
           const matrix = this._ensureSection(config, 'matrix', {
@@ -153,11 +154,17 @@
           if (level === 'safe') {
             config.auto_optimize_enabled = true;
             config.optimization_interval_messages = 24;
+            optimization.auto_optimize_interval_messages = 24;
             config.optimization_min_samples = 24;
+            optimization.min_samples_for_promotion = 24;
             config.optimization_cooldown_hours = 12;
+            optimization.cooldown_hours = 12;
             config.optimization_preview_limit = 30;
+            optimization.optimization_preview_limit = 30;
             config.replay_set_size = 4;
+            optimization.replay_set_size = 4;
             config.replay_tolerable_regression = 0.05;
+            optimization.replay_tolerable_regression = 0.05;
             config.optimization_interval_minutes = 240;
             config.scheduler_mode = 'distributed';
             config.scheduler_max_workers = 2;
@@ -175,9 +182,13 @@
           } else if (level === 'balanced') {
             config.auto_optimize_enabled = true;
             config.optimization_interval_messages = 12;
+            optimization.auto_optimize_interval_messages = 12;
             config.optimization_min_samples = 10;
+            optimization.min_samples_for_promotion = 10;
             config.optimization_cooldown_hours = 6;
+            optimization.cooldown_hours = 6;
             config.optimization_preview_limit = 20;
+            optimization.optimization_preview_limit = 20;
             config.scheduler_mode = 'distributed';
             config.scheduler_max_workers = 3;
             config.gepa_steps = 3;
@@ -191,15 +202,21 @@
           } else if (level === 'aggressive') {
             config.auto_optimize_enabled = true;
             config.optimization_interval_messages = 6;
+            optimization.auto_optimize_interval_messages = 6;
             config.optimization_min_samples = 6;
+            optimization.min_samples_for_promotion = 6;
             config.optimization_cooldown_hours = 2;
+            optimization.cooldown_hours = 2;
             config.optimization_preview_limit = 14;
+            optimization.optimization_preview_limit = 14;
             config.scheduler_mode = 'distributed';
             config.scheduler_max_workers = 4;
             config.gepa_steps = 5;
             config.gepa_threads = 4;
             config.replay_set_size = 3;
+            optimization.replay_set_size = 3;
             config.replay_tolerable_regression = 0.15;
+            optimization.replay_tolerable_regression = 0.15;
             shell.command_safety_threshold = 0.90;
             shell.command_safety_hard_fail = 0.55;
             shell.execution_reliability_threshold = 0.68;
@@ -524,7 +541,7 @@
         config.automatic_project_genesis = toBool(config.automatic_project_genesis, true);
         config.instrumentation_enabled = toBool(config.instrumentation_enabled, true);
         config.status_refresh_seconds = toInt(config.status_refresh_seconds, 8, 1, 120);
-        config.trace_enabled = toBool(config.trace_enabled, config.instrumentation_enabled);
+        config.trace_enabled = config.instrumentation_enabled;
         config.trace_retention_limit = toInt(config.trace_retention_limit, 604800, 60, 31536000);
 
         config.trace_capture = traceCapture;
@@ -539,17 +556,18 @@
         optimization.auto_optimize = config.auto_optimize_enabled;
         optimization.auto_optimize_interval_messages = toInt(optimization.auto_optimize_interval_messages, 12, 1, 10000);
         config.optimization_interval_messages = toInt(config.optimization_interval_messages, optimization.auto_optimize_interval_messages, 1, 10000);
-        config.optimization_interval_minutes = toInt(config.optimization_interval_minutes, 180, 1, 1440);
+        optimization.auto_optimize_interval_messages = config.optimization_interval_messages;
+        config.optimization_interval_minutes = toInt(config.optimization_interval_minutes, optimization.auto_optimize_interval_minutes || 180, 1, 1440);
         optimization.auto_optimize_interval_minutes = config.optimization_interval_minutes;
-        config.optimization_min_samples = toInt(config.optimization_min_samples, 10, 1, 1000);
-        config.optimization_min_samples_for_promotion = toInt(config.optimization_min_samples_for_promotion, 10, 1, 1000);
+        config.optimization_min_samples = toInt(config.optimization_min_samples, optimization.min_samples_for_promotion, 1, 1000);
         optimization.min_samples_for_promotion = config.optimization_min_samples;
         optimization.cooldown_hours = toInt(optimization.cooldown_hours, 6, 0, 8760);
-        optimization.cooldown_hours = toInt(optimization.cooldown_hours, 6, 0, 8760);
+        config.optimization_cooldown_hours = toInt(config.optimization_cooldown_hours, optimization.cooldown_hours, 0, 8760);
+        optimization.cooldown_hours = config.optimization_cooldown_hours;
         config.optimization_minimum = toInt(config.optimization_minimum, 1, 1, 1000);
         config.optimization_trace_window = toInt(config.optimization_trace_window, traceCapture.max_events_per_context, 1, 2000000);
         traceCapture.max_events_per_context = config.optimization_trace_window;
-        config.optimization_max_active_objectives_per_context = toInt(config.optimization_max_active_objectives_per_context, 8, 1, 64);
+        config.optimization_max_active_objectives_per_context = toInt(config.optimization_max_active_objectives_per_context, optimization.max_active_objectives_per_context || 8, 1, 64);
         optimization.max_active_objectives_per_context = config.optimization_max_active_objectives_per_context;
         optimization.max_samples_per_objective = toInt(optimization.max_samples_per_objective, 40, 1, 200);
         optimization.retain_samples_per_context = toInt(optimization.retain_samples_per_context, 3000, 10, 200000);
@@ -566,12 +584,13 @@
         optimization.ge_pa_threads = config.gepa_threads;
         config.ge_pa_threads = toInt(config.ge_pa_threads, config.gepa_threads, 1, 64);
         optimization.max_evaluation_batch = toInt(optimization.max_evaluation_batch, 10, 1, 128);
-        config.optimization_preview_limit = toInt(config.optimization_preview_limit, 20, 10, 10000);
-        config.replay_set_size = toInt(config.replay_set_size, 6, 1, 20);
+        config.optimization_preview_limit = toInt(config.optimization_preview_limit, optimization.optimization_preview_limit, 10, 10000);
+        optimization.optimization_preview_limit = config.optimization_preview_limit;
+        config.replay_set_size = toInt(config.replay_set_size, optimization.replay_set_size, 1, 20);
         optimization.replay_set_size = config.replay_set_size;
-        config.replay_tolerable_regression = toFloat(config.replay_tolerable_regression, 0.10);
+        config.replay_tolerable_regression = toFloat(config.replay_tolerable_regression, optimization.replay_tolerable_regression);
         optimization.replay_tolerable_regression = config.replay_tolerable_regression;
-        config.replay_audit_sample_size = toInt(config.replay_audit_sample_size, 6, 1, 40);
+        config.replay_audit_sample_size = toInt(config.replay_audit_sample_size, optimization.replay_audit_sample_size, 1, 40);
         optimization.replay_audit_sample_size = config.replay_audit_sample_size;
         optimization.enable_replay_audit = toBool(optimization.enable_replay_audit, true);
         config.enable_replay_audit = toBool(config.enable_replay_audit, optimization.enable_replay_audit);
@@ -783,6 +802,19 @@
           scheduler.enforce_single_tenant_per_context = toBool(value, false);
         });
 
+        $watch(() => config.instrumentation_enabled, (value) => {
+          const enabled = toBool(value, false);
+          if (config.trace_enabled !== enabled) config.trace_enabled = enabled;
+        });
+        $watch(() => config.trace_enabled, (value) => {
+          const enabled = toBool(value, false);
+          if (config.instrumentation_enabled !== enabled) config.instrumentation_enabled = enabled;
+        });
+        $watch(() => traceCapture.max_events_per_context, (value) => {
+          const mapped = toInt(value, 1800, 10, 2000000);
+          if (config.optimization_trace_window !== mapped) config.optimization_trace_window = mapped;
+        });
+
         $watch(() => config.auto_optimize_enabled, (value) => {
           const enabled = toBool(value, false);
           const optimizationSection = ensureOptimizationSection();
@@ -812,6 +844,30 @@
           const optimizationSection = ensureOptimizationSection();
           optimizationSection.ge_pa_threads = mapped;
           optimizationSection.gepa_threads = mapped;
+        });
+        $watch(() => config.optimization_interval_messages, (value) => {
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.auto_optimize_interval_messages = toInt(value, 12, 1, 10000);
+        });
+        $watch(() => config.optimization_interval_minutes, (value) => {
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.auto_optimize_interval_minutes = toInt(value, 180, 1, 1440);
+        });
+        $watch(() => config.optimization_min_samples, (value) => {
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.min_samples_for_promotion = toInt(value, 10, 1, 1000);
+        });
+        $watch(() => config.optimization_cooldown_hours, (value) => {
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.cooldown_hours = toInt(value, 6, 0, 8760);
+        });
+        $watch(() => config.replay_set_size, (value) => {
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.replay_set_size = toInt(value, 6, 1, 20);
+        });
+        $watch(() => config.replay_tolerable_regression, (value) => {
+          const optimizationSection = ensureOptimizationSection();
+          optimizationSection.replay_tolerable_regression = toFloat(value, 0.10, 0, 1);
         });
         $watch(() => config.optimization_trace_window, (value) => {
           const traceCaptureSection = ensureTraceCaptureSection();
@@ -850,6 +906,7 @@
               <p class="dspy-eyebrow">Automation</p>
               <h2>Choose how far the plugin can go</h2>
               <p>Automation never bypasses replay, canary, calibration, activation, or rollback authority.</p>
+              <p class="automation-managed-note" x-show="selectedAutomation !== 'observe'">Review and Autopilot lock the capabilities they require. Switch to Observe to edit those controls individually.</p>
             </div>
             <div class="automation-options">
               <button type="button" class="automation-option" :class="{ 'is-selected': selectedAutomation === 'observe' }" @click="applyAutomation('observe')">
@@ -926,13 +983,13 @@
               <div class="dspy-field">
                 <label>
                   <span>Trace instrumentation</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.instrumentation_enabled" /><span class="slider"></span></label>
+                  <label class="toggle" :title="selectedAutomation !== 'observe' ? 'Required by the selected automation mode' : ''"><input type="checkbox" x-model="config.instrumentation_enabled" :disabled="selectedAutomation !== 'observe'" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field">
                 <label>
                   <span>Trace capture active</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.trace_enabled" /><span class="slider"></span></label>
+                  <label class="toggle" :title="selectedAutomation !== 'observe' ? 'Required by the selected automation mode' : ''"><input type="checkbox" x-model="config.trace_enabled" :disabled="selectedAutomation !== 'observe'" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field">
@@ -968,7 +1025,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Auto optimize</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.auto_optimize_enabled" /><span class="slider"></span></label>
+                  <label class="toggle" :title="selectedAutomation !== 'observe' ? 'Required by the selected automation mode' : ''"><input type="checkbox" x-model="config.auto_optimize_enabled" :disabled="selectedAutomation !== 'observe'" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field inline">
@@ -1009,7 +1066,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Enable GEPA</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.enable_dspy_optimizer" /><span class="slider"></span></label>
+                  <label class="toggle" :title="selectedAutomation !== 'observe' ? 'Required by the selected automation mode' : ''"><input type="checkbox" x-model="config.enable_dspy_optimizer" :disabled="selectedAutomation !== 'observe'" /><span class="slider"></span></label>
                 </label>
               </div>
               <div class="dspy-field inline">
@@ -1057,7 +1114,7 @@
               <div class="dspy-field">
                 <label>
                   <span>Enable replay audit</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.enable_replay_audit" /><span class="slider"></span></label>
+                  <label class="toggle" :title="selectedAutomation !== 'observe' ? 'Required by the selected automation mode' : ''"><input type="checkbox" x-model="config.enable_replay_audit" :disabled="selectedAutomation !== 'observe'" /><span class="slider"></span></label>
                 </label>
               </div>
             </div>
@@ -1067,7 +1124,7 @@
               <div class="dspy-field">
                 <label>
                   <span>RLM analysis enabled</span>
-                  <label class="toggle"><input type="checkbox" x-model="config.rlm.enabled" /><span class="slider"></span></label>
+                  <label class="toggle" :title="selectedAutomation !== 'observe' ? 'Required by the selected automation mode' : ''"><input type="checkbox" x-model="config.rlm.enabled" :disabled="selectedAutomation !== 'observe'" /><span class="slider"></span></label>
                 </label>
                 <small>Explores redacted aggregate evidence with DSPy's bounded, sandboxed RLM. Leave the selector blank to inherit Agent Zero's effective utility model.</small>
               </div>
@@ -1094,11 +1151,11 @@
             <p class="prompt-lab__warning">Experimental and opt-in. Candidates are stored as versioned overlays; Agent Zero prompt files are never rewritten. Automatic activation always passes through a bounded canary.</p>
             <div class="dspy-grid dspy-grid--small">
               <div class="dspy-field">
-                <label><span>Enable prompt optimization</span><label class="toggle"><input type="checkbox" x-model="config.prompt_optimization.enabled" /><span class="slider"></span></label></label>
+                <label><span>Enable prompt optimization</span><label class="toggle" :title="selectedAutomation !== 'observe' ? 'Required by the selected automation mode' : ''"><input type="checkbox" x-model="config.prompt_optimization.enabled" :disabled="selectedAutomation !== 'observe'" /><span class="slider"></span></label></label>
                 <small>Guidance overlays remain the safe default until another target mode is selected.</small>
               </div>
               <div class="dspy-field">
-                <label><span>Approve local prompt snapshots</span><label class="toggle"><input type="checkbox" x-model="config.prompt_optimization.allow_prompt_capture" /><span class="slider"></span></label></label>
+                <label><span>Approve local prompt snapshots</span><label class="toggle" :title="config.automation.capture_system_prompts ? 'Enabled by local system-prompt capture' : ''"><input type="checkbox" x-model="config.prompt_optimization.allow_prompt_capture" :disabled="config.automation.capture_system_prompts" /><span class="slider"></span></label></label>
                 <small>Required for direct component modes. Snapshots remain in the plugin's local SQLite store.</small>
               </div>
               <div class="dspy-cell">
@@ -1111,7 +1168,7 @@
               </div>
               <div class="dspy-cell">
                 <label>Activation policy</label>
-                <select x-model="config.prompt_optimization.activation_mode">
+                <select x-model="config.prompt_optimization.activation_mode" :disabled="selectedAutomation === 'autopilot'" :title="selectedAutomation === 'autopilot' ? 'Autopilot requires automatic activation after canary' : ''">
                   <option value="manual">Manual</option>
                   <option value="canary">Canary</option>
                   <option value="automatic">Automatic after canary</option>
@@ -1133,7 +1190,7 @@
                 <label>Canary traffic (%)<input type="number" min="1" max="100" x-model.number="config.prompt_optimization.canary_percentage" /></label>
                 <label>Minimum observations<input type="number" min="3" max="1000" x-model.number="config.prompt_optimization.canary_min_observations" /></label>
                 <label>Maximum observations<input type="number" min="3" max="5000" x-model.number="config.prompt_optimization.canary_max_observations" /></label>
-                <label class="dspy-field-toggle"><span>Automatic rollback</span><label class="toggle"><input type="checkbox" x-model="config.prompt_optimization.rollback.enabled" /><span class="slider"></span></label></label>
+                <label class="dspy-field-toggle"><span>Automatic rollback</span><label class="toggle" :title="selectedAutomation === 'autopilot' ? 'Autopilot requires automatic rollback' : ''"><input type="checkbox" x-model="config.prompt_optimization.rollback.enabled" :disabled="selectedAutomation === 'autopilot'" /><span class="slider"></span></label></label>
                 <label>Maximum score regression<input type="number" min="0" max="1" step="0.01" x-model.number="config.prompt_optimization.rollback.maximum_score_regression" /></label>
                 <label>Failure-rate increase<input type="number" min="0" max="1" step="0.01" x-model.number="config.prompt_optimization.rollback.maximum_failure_rate_increase" /></label>
               </div>
@@ -1554,7 +1611,8 @@
     .automation-selector h2,
     .automation-selector p { margin: 0; }
 
-    .automation-selector > div:first-child > p:last-child { margin-top: 5px; color: var(--dspy-soft); font-size: 0.82rem; }
+    .automation-selector > div:first-child > p:not(.dspy-eyebrow) { margin-top: 5px; color: var(--dspy-soft); font-size: 0.82rem; }
+    .automation-selector .automation-managed-note { color: #f3c96b; }
 
     .automation-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 
@@ -1863,6 +1921,16 @@
       height: 100%;
       margin: 0;
       cursor: pointer;
+    }
+
+    .dspy-config-shell :is(input, select, textarea):disabled {
+      cursor: not-allowed;
+      opacity: 0.58;
+    }
+
+    .dspy-config-shell .toggle:has(input:disabled) {
+      cursor: not-allowed;
+      opacity: 0.58;
     }
 
     .dspy-config-shell .toggle .slider {
