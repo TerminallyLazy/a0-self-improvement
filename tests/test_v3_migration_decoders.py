@@ -9,6 +9,7 @@ import pytest
 
 from usr.plugins.dspy_rlm.helpers.guidance import GuidanceArtifact, render_guidance_artifact
 from usr.plugins.dspy_rlm.helpers.store import Store
+import usr.plugins.dspy_rlm.helpers.store as store_module
 from usr.plugins.dspy_rlm.helpers.v3.migration_decoder import (
     LegacyJSONError,
     LegacySchemaError,
@@ -49,6 +50,24 @@ def _readonly(path) -> sqlite3.Connection:
     return connection
 
 
+def _v2_store(path) -> Store:
+    """Build the exact frozen v2 layout without migrating it to the current schema."""
+
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE legacy_imports (source TEXT PRIMARY KEY, imported_at REAL NOT NULL)"
+        )
+        for version, sql in store_module.MIGRATIONS[:2]:
+            connection.executescript(sql)
+            connection.execute(
+                "INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)",
+                (version, 1.0),
+            )
+    store = object.__new__(Store)
+    store.db_path = path
+    return store
+
+
 def _prompt_digest(value) -> str:
     encoded = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     return "sha256:" + sha256(encoded.encode("utf-8")).hexdigest()
@@ -70,18 +89,27 @@ def _insert_active_guidance(store: Store, *, active: bool, expired: bool = False
         engine_version="legacy-1",
     )
     render_at = datetime(2026, 8, 1, tzinfo=timezone.utc) if expired else AS_OF
-    store.append_guidance_version(
-        artifact.artifact_id,
-        artifact.context_id,
-        artifact.objective_bucket,
-        "sig",
-        render_guidance_artifact(artifact, now=render_at),
-        {"guidance_artifact": artifact.to_mapping()},
-    )
-    if active:
-        assert store.compare_and_swap_active_guidance(
-            "ctx", "reasoning", artifact.artifact_id, expected_revision=0
-        ) == (True, 1)
+    guidance_text = render_guidance_artifact(artifact, now=render_at)
+    metadata = {"guidance_artifact": artifact.to_mapping()}
+    with store._connect() as writer:
+        writer.execute(
+            "INSERT INTO guidance_versions VALUES (?,?,?,?,?,?,?,?)",
+            (
+                artifact.artifact_id,
+                artifact.context_id,
+                artifact.objective_bucket,
+                "sig",
+                guidance_text,
+                json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                store_module._digest({"guidance_text": guidance_text, "metadata": metadata}),
+                1.0,
+            ),
+        )
+        if active:
+            writer.execute(
+                "INSERT INTO active_guidance VALUES (?,?,?,?,?)",
+                ("ctx", "reasoning", artifact.artifact_id, 1, 1.0),
+            )
     return artifact
 
 
@@ -103,7 +131,7 @@ def test_exact_schema_and_historical_digest_rules(tmp_path, legacy_version: int)
         return
 
     path = tmp_path / "legacy-v2.sqlite3"
-    store = Store(path)
+    store = _v2_store(path)
     store.append_sample("sample-1", {"context_id": "ctx", "objective_bucket": "reasoning"})
     body = "ordinary prompt segment"
     source_digest = "sha256:" + sha256(body.encode("utf-8")).hexdigest()
@@ -140,7 +168,7 @@ def test_exact_schema_and_historical_digest_rules(tmp_path, legacy_version: int)
 
 def test_mixed_v2_rows_receive_safe_dispositions_without_content_leakage(tmp_path) -> None:
     path = tmp_path / "mixed.sqlite3"
-    store = Store(path)
+    store = _v2_store(path)
     _insert_active_guidance(store, active=True)
     raw_marker = "RAW-PROMPT-SECRET-MARKER"
     store.append_sample("sample-1", {"context_id": "ctx", "prompt": raw_marker})
@@ -175,7 +203,7 @@ def test_only_exact_active_nonexpired_guidance_is_eligible(
     tmp_path, active: bool, expired: bool, expected_members: int, reason: str
 ) -> None:
     path = tmp_path / f"eligible-{active}-{expired}.sqlite3"
-    store = Store(path)
+    store = _v2_store(path)
     _insert_active_guidance(store, active=active, expired=expired)
     with _readonly(path) as connection:
         result = decode_legacy_snapshot(connection, as_of=AS_OF)
@@ -195,8 +223,15 @@ def test_unknown_schema_and_ambiguous_json_fail_closed(tmp_path) -> None:
     with pytest.raises(LegacyJSONError, match="non-finite"):
         strict_legacy_json_loads('{"x":1e999}')
 
+    current_path = tmp_path / "current.sqlite3"
+    Store(current_path)
+    with _readonly(current_path) as connection, pytest.raises(
+        LegacySchemaError, match="unknown legacy tables or columns"
+    ):
+        decode_legacy_snapshot(connection, as_of=AS_OF)
+
     path = tmp_path / "future.sqlite3"
-    store = Store(path)
+    store = _v2_store(path)
     with store._connect() as writer:
         writer.execute("UPDATE schema_migrations SET version=3 WHERE version=1")
     with _readonly(path) as connection, pytest.raises(LegacySchemaError, match="schema version"):
