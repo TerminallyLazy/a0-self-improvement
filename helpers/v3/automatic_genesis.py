@@ -50,6 +50,7 @@ _GRANT_LIFETIME = timedelta(minutes=5)
 @dataclass(frozen=True, slots=True)
 class AutomaticGenesisResult:
     project_ref: str
+    context_refs: tuple[str, ...]
     discovered_context_count: int
     initialized_context_refs: tuple[str, ...]
     already_ready_count: int
@@ -403,6 +404,7 @@ def ensure_project_genesis(
                     already_ready += 1
     return AutomaticGenesisResult(
         project_ref=project,
+        context_refs=discovered,
         discovered_context_count=len(discovered),
         initialized_context_refs=tuple(initialized),
         already_ready_count=already_ready,

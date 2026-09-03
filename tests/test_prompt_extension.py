@@ -8,8 +8,11 @@ from typing import Any
 import pytest
 
 from usr.plugins.dspy_rlm.extensions.python.system_prompt._30_dspy_rlm_guidance import (
+    AUTOPILOT_ARTIFACT_LOOP_KEY,
+    AUTOPILOT_SELECTION_LOOP_KEY,
     DspyRlmGuidance,
 )
+from usr.plugins.dspy_rlm.helpers.autopilot_transition_runner import TransitionSelection
 from usr.plugins.dspy_rlm.extensions.python.system_prompt._99_dspy_rlm_prompt_controller import (
     DspyRlmPromptController,
 )
@@ -155,3 +158,72 @@ async def test_late_controller_is_an_inert_compatibility_no_op(
 
     assert prompt == ["core"]
     assert _snapshot(isolated_plugin_paths) == before == {}
+
+
+@pytest.mark.asyncio
+async def test_autopilot_assignment_is_sticky_for_complete_user_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = __import__(_SEAM, fromlist=["DspyRlmGuidance"])
+    monkeypatch.setattr(
+        module.config_module, "load_config",
+        lambda _agent: {
+            "enabled": True,
+            "automation": {"mode": "autopilot", "authority_consent_revision": 1},
+        },
+    )
+    monkeypatch.setattr(module.autopilot, "capture_system_prompt", lambda **_kwargs: None)
+
+    class ReaderContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(module, "open_runtime_reader", lambda **_kwargs: ReaderContext())
+    monkeypatch.setattr(
+        module.runtime_composer, "compose_runtime",
+        lambda *_args, system_prompt, **_kwargs: SimpleNamespace(
+            applied=False, segments=tuple(system_prompt), profile_id=None,
+        ),
+    )
+    calls: list[str] = []
+    artifact = SimpleNamespace(artifact_id="guide-sticky")
+
+    def select(**kwargs: Any):
+        calls.append(kwargs["exposure_ref"])
+        return (
+            TransitionSelection(
+                "candidate", "context-01", "reasoning", "guide-sticky",
+                "canary", "candidate", kwargs["exposure_ref"],
+            ),
+            artifact,
+        )
+
+    monkeypatch.setattr(module, "select_guidance", select)
+    monkeypatch.setattr(module, "render_guidance_artifact", lambda _artifact: "candidate")
+    loop_data = SimpleNamespace(
+        iteration=0,
+        user_message=SimpleNamespace(id="message-sticky"),
+        params_temporary={},
+        params_persistent={},
+    )
+    context = SimpleNamespace(
+        id="context-01",
+        get_data=lambda key, recursive=False: False
+        if key == "dspy_rlm_offline_replay"
+        else None,
+    )
+    hook = DspyRlmGuidance(agent=SimpleNamespace(context=context))
+    first = ["core"]
+    await hook.execute(system_prompt=first, loop_data=loop_data)
+    loop_data.iteration = 1
+    loop_data.params_temporary = {}
+    second = ["core"]
+    await hook.execute(system_prompt=second, loop_data=loop_data)
+
+    assert calls == ["message-sticky"]
+    assert first == second == ["core", "candidate"]
+    assert AUTOPILOT_SELECTION_LOOP_KEY in loop_data.params_persistent
+    assert loop_data.params_persistent[AUTOPILOT_ARTIFACT_LOOP_KEY] is artifact

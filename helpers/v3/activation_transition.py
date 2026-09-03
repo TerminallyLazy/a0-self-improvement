@@ -222,6 +222,22 @@ _SLOT_TRANSITION = strict_object(
 )
 
 
+_RECEIPT_AUTHORITY_FIELDS = {
+    "authority_class": strict_enum(
+        (
+            AuthorityClass.OPERATOR_AUTHORITY_GRANT.value,
+            AuthorityClass.AUTOMATIC_TRANSITION_GRANT.value,
+        )
+    ),
+    "authority_purpose": strict_enum(
+        (
+            AuthorityPurpose.OPERATOR_MUTATION.value,
+            AuthorityPurpose.AUTOMATIC_PROMOTION.value,
+        )
+    ),
+}
+
+
 def _receipt_validator(value: Any, path: str) -> dict[str, Any]:
     payload = strict_object(
         {
@@ -257,8 +273,11 @@ def _receipt_validator(value: Any, path: str) -> dict[str, Any]:
                 maximum=1,
             ),
             "links": validate_links,
-        }
+        },
+        optional=_RECEIPT_AUTHORITY_FIELDS,
     )(value, path)
+    if ("authority_class" in payload) != ("authority_purpose" in payload):
+        raise SchemaValidationError(f"{path} has a partial authority identity")
     action = payload["action"]
     if payload["resulting_revision"] != payload["observed_revision"] + 1:
         raise SchemaValidationError(f"{path}.resulting_revision must advance exactly once")
@@ -419,7 +438,11 @@ def activate_candidate(
     request_digest = _request_digest(request_payload)
     with repository.transaction() as transaction:
         grant = _verified_grant(
-            transaction, command, "activate", revalidate_grant
+            transaction,
+            command,
+            "activate",
+            revalidate_grant,
+            automatic=request.eligibility.activation_mode == "automatic",
         )
         replay = _existing_command_replay(
             transaction, command, "activate", request_digest, grant
@@ -589,7 +612,13 @@ def _profile_transition(
     }
     request_digest = _request_digest(request_payload)
     with repository.transaction() as transaction:
-        grant = _verified_grant(transaction, command, action, revalidate_grant)
+        grant = _verified_grant(
+            transaction,
+            command,
+            action,
+            revalidate_grant,
+            automatic=None if action == "rollback" else False,
+        )
         replay = _existing_command_replay(
             transaction, command, action, request_digest, grant
         )
@@ -612,6 +641,30 @@ def _profile_transition(
                 or payload["resulting_revision"] != scope.scope_revision
             ):
                 _deny("rollback_ancestry_mismatch")
+            if grant.authority_class == AuthorityClass.AUTOMATIC_TRANSITION_GRANT.value:
+                calibration_identity = payload["policy_calibration"]
+                if (
+                    payload.get("authority_class")
+                    != AuthorityClass.AUTOMATIC_TRANSITION_GRANT.value
+                    or payload.get("authority_purpose")
+                    != AuthorityPurpose.AUTOMATIC_PROMOTION.value
+                    or calibration_identity is None
+                ):
+                    _deny("automatic_rollback_not_authorized")
+                calibration = _require_exact(
+                    transaction,
+                    ExactRecord(
+                        calibration_identity["record_id"],
+                        calibration_identity["digest"],
+                    ),
+                    "policy_calibration",
+                )
+                if (
+                    calibration.payload["status"] != "approved"
+                    or not calibration.payload["soft_rollback_authorized"]
+                    or "automatic" not in calibration.payload["activation_authorities"]
+                ):
+                    _deny("automatic_rollback_not_authorized")
             mode, reason = "normal", "predecessor_restored"
         else:
             _require_all_null_profile(transaction, target)
@@ -901,6 +954,8 @@ def _verified_grant(
     command: TransitionCommand,
     action: str,
     revalidate_grant: GrantRevalidator,
+    *,
+    automatic: bool | None = False,
 ) -> VerifiedGrant:
     grant = revalidate_grant(transaction)
     if type(grant) is not VerifiedGrant:
@@ -908,14 +963,28 @@ def _verified_grant(
     now = command.now.astimezone(timezone.utc)
     if grant.issued_at.tzinfo is None or grant.expires_at.tzinfo is None:
         _deny("authority_grant_mismatch")
+    automatic_authority = (
+        grant.authority_class == AuthorityClass.AUTOMATIC_TRANSITION_GRANT.value
+        and grant.purpose == AuthorityPurpose.AUTOMATIC_PROMOTION.value
+    )
+    operator_authority = (
+        grant.authority_class == AuthorityClass.OPERATOR_AUTHORITY_GRANT.value
+        and grant.purpose == AuthorityPurpose.OPERATOR_MUTATION.value
+    )
+    authority_matches = (
+        automatic_authority
+        if automatic is True
+        else operator_authority
+        if automatic is False
+        else automatic_authority or operator_authority
+    )
     if (
         grant.grant_id != command.authority_grant_id
-        or grant.authority_class != AuthorityClass.OPERATOR_AUTHORITY_GRANT.value
         or grant.issuer_id != command.issuer_ref
         or grant.subject_ref != command.subject_ref
         or grant.context_ref != command.context_ref
         or grant.action != action
-        or grant.purpose != AuthorityPurpose.OPERATOR_MUTATION.value
+        or not authority_matches
         or grant.target_ref != command.target_ref
         or grant.target_revision != command.expected_scope_revision
         or grant.idempotency_key_digest != command.idempotency_key_digest
@@ -1084,6 +1153,8 @@ def _build_receipt(
         "fixture_manifests": [_exact_payload(item) for item in fixtures],
         "slot_transitions": list(slot_transitions),
         "authority_grant_id": grant.grant_id,
+        "authority_class": grant.authority_class,
+        "authority_purpose": grant.purpose,
         "issuer_ref": grant.issuer_id,
         "subject_ref": grant.subject_ref,
         "idempotency_key_digest": command.idempotency_key_digest,

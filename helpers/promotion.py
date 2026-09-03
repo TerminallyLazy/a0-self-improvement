@@ -63,6 +63,14 @@ def _json_object(value: Any) -> dict[str, Any] | None:
         return None
 
 
+def _digest_value(value: Any) -> str:
+    return sha256(
+        json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 class PromotionCoordinator:
     """The only component permitted to change an active guidance pointer."""
 
@@ -112,12 +120,15 @@ class PromotionCoordinator:
         self.store.append_guidance_version(version, str(context_id), str(objective_bucket), str(objective_signature), text, detail)
         return version
 
-    def _promotion_evidence(
+    def verified_evidence_chain(
         self,
         context_id: str,
         objective_bucket: str,
         guidance_version: str,
         active: Mapping[str, Any] | None,
+        *,
+        allow_missing_baseline: bool = False,
+        expected_candidate_id: str | None = None,
     ) -> tuple[dict[str, Any] | None, str]:
         """Verify the immutable candidate-to-replay evidence chain before CAS.
 
@@ -126,10 +137,10 @@ class PromotionCoordinator:
         fail-closed refusal.  The baseline replay identifier is the active
         guidance version; it must match both baseline fields recorded by replay.
         """
-        if not active:
+        if not active and not allow_missing_baseline:
             return None, "missing_active_baseline"
-        baseline_version = str(active.get("guidance_version") or "")
-        if not baseline_version:
+        baseline_version = str(active.get("guidance_version") or "") if active else ""
+        if not baseline_version and not allow_missing_baseline:
             return None, "missing_active_baseline"
 
         staged = self.store.get_guidance_version(guidance_version)
@@ -137,13 +148,17 @@ class PromotionCoordinator:
         identifiers = _object(metadata.get("persistence") if metadata else None)
         if not staged or not metadata or not identifiers:
             return None, "missing_persisted_candidate_evidence"
-        required_ids = ("run_id", "candidate_id", "evaluation_id", "replay_audit_id", "replay_manifest_id")
+        required_ids = (
+            "run_id", "candidate_id", "evaluation_id", "replay_audit_id",
+            "replay_manifest_id", "training_manifest_id",
+        )
         if any(not isinstance(identifiers.get(name), str) or not identifiers[name] for name in required_ids):
             return None, "missing_persisted_candidate_evidence"
         candidate_id = identifiers["candidate_id"]
         evaluation_id = identifiers["evaluation_id"]
         audit_id = identifiers["replay_audit_id"]
         manifest_id = identifiers["replay_manifest_id"]
+        training_manifest_id = identifiers["training_manifest_id"]
         run_id = identifiers["run_id"]
 
         # Read linked append-only rows together. Store exposes write-safe APIs,
@@ -151,42 +166,94 @@ class PromotionCoordinator:
         # requesting its one CAS mutation.
         with self.store._connect() as conn:
             candidate_row = conn.execute(
-                "SELECT run_id,guidance_version,candidate_json FROM candidates "
+                "SELECT run_id,guidance_version,candidate_json,candidate_digest FROM candidates "
                 "WHERE candidate_id=? AND context_id=? AND objective_bucket=?",
                 (candidate_id, str(context_id), str(objective_bucket)),
             ).fetchone()
             evaluation_row = conn.execute(
-                "SELECT candidate_id,evaluation_json FROM evaluations WHERE evaluation_id=?",
+                "SELECT candidate_id,evaluation_json,evaluation_digest FROM evaluations WHERE evaluation_id=?",
                 (evaluation_id,),
             ).fetchone()
             audit_row = conn.execute(
-                "SELECT candidate_id,manifest_id,audit_json FROM replay_audits WHERE audit_id=?",
+                "SELECT candidate_id,manifest_id,audit_json,audit_digest FROM replay_audits WHERE audit_id=?",
                 (audit_id,),
             ).fetchone()
             manifest_row = conn.execute(
-                "SELECT context_id,kind,payload_json FROM sample_manifests WHERE manifest_id=?",
+                "SELECT context_id,kind,sample_ids_json,payload_json,manifest_digest FROM sample_manifests WHERE manifest_id=?",
                 (manifest_id,),
             ).fetchone()
+            training_manifest_row = conn.execute(
+                "SELECT context_id,kind,sample_ids_json,payload_json,manifest_digest FROM sample_manifests WHERE manifest_id=?",
+                (training_manifest_id,),
+            ).fetchone()
+            run_row = conn.execute(
+                "SELECT context_id,status,run_json,run_digest FROM optimization_runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
 
-        if not candidate_row or not evaluation_row or not audit_row or not manifest_row:
+        if (
+            not candidate_row or not evaluation_row or not audit_row
+            or not manifest_row or not training_manifest_row or not run_row
+        ):
             return None, "missing_persisted_candidate_evidence"
         candidate = _json_object(candidate_row["candidate_json"])
         evaluation = _json_object(evaluation_row["evaluation_json"])
         audit = _json_object(audit_row["audit_json"])
         manifest = _json_object(manifest_row["payload_json"])
-        if not candidate or not evaluation or not audit or not manifest:
+        training_manifest = _json_object(training_manifest_row["payload_json"])
+        run = _json_object(run_row["run_json"])
+        try:
+            manifest_ids = json.loads(manifest_row["sample_ids_json"])
+            training_ids = json.loads(training_manifest_row["sample_ids_json"])
+        except (TypeError, ValueError):
             return None, "malformed_persisted_promotion_evidence"
+        if not candidate or not evaluation or not audit or not manifest or not run:
+            return None, "malformed_persisted_promotion_evidence"
+        if (
+            staged.get("artifact_digest")
+            != _digest_value(
+                {"guidance_text": staged.get("guidance_text"), "metadata": metadata}
+            )
+            or candidate_row["candidate_digest"] != _digest_value(candidate)
+            or run_row["run_digest"] != _digest_value(run)
+            or evaluation_row["evaluation_digest"] != _digest_value(evaluation)
+            or audit_row["audit_digest"] != _digest_value(audit)
+            or manifest_row["manifest_digest"]
+            != _digest_value(
+                {
+                    "context_id": str(manifest_row["context_id"]),
+                    "kind": str(manifest_row["kind"]),
+                    "sample_ids": manifest_ids,
+                    "payload": manifest,
+                }
+            )
+            or training_manifest_row["manifest_digest"]
+            != _digest_value(
+                {
+                    "context_id": str(training_manifest_row["context_id"]),
+                    "kind": str(training_manifest_row["kind"]),
+                    "sample_ids": training_ids,
+                    "payload": training_manifest,
+                }
+            )
+        ):
+            return None, "persisted_evidence_digest_mismatch"
 
         # Candidate, evaluation, audit, manifest, and staged metadata must form
         # one coherent immutable record set for this exact candidate version.
         if (
             str(candidate_row["run_id"] or "") != run_id
+            or (
+                expected_candidate_id is not None
+                and candidate_id != str(expected_candidate_id)
+            )
             or str(candidate_row["guidance_version"] or "") != str(guidance_version)
             or str(candidate.get("candidate_id") or "") != candidate_id
             or str(candidate.get("run_id") or "") != run_id
             or str(candidate.get("guidance_version") or "") != str(guidance_version)
             or str(candidate.get("replay_audit_id") or "") != audit_id
             or str(candidate.get("replay_manifest_id") or "") != manifest_id
+            or _object(candidate.get("guidance_metadata")) != metadata
             or str(evaluation_row["candidate_id"] or "") != candidate_id
             or str(evaluation.get("run_id") or "") != run_id
             or str(evaluation.get("replay_manifest_id") or "") != manifest_id
@@ -195,6 +262,15 @@ class PromotionCoordinator:
             or str(manifest_row["context_id"] or "") != str(context_id)
             or str(manifest_row["kind"] or "") != "paired_replay"
             or str(manifest.get("manifest_id") or "") != manifest_id
+            or str(training_manifest_row["context_id"] or "") != str(context_id)
+            or str(training_manifest_row["kind"] or "") != "optimization_training"
+            or str(run_row["context_id"] or "") != str(context_id)
+            or str(run_row["status"] or "") != "candidate"
+            or str(run.get("candidate_id") or "") != candidate_id
+            or str(run.get("guidance_version") or "") != str(guidance_version)
+            or str(run.get("training_manifest_id") or "") != training_manifest_id
+            or str(run.get("replay_manifest_id") or "") != manifest_id
+            or str(run.get("replay_audit_id") or "") != audit_id
         ):
             return None, "promotion_evidence_linkage_mismatch"
 
@@ -203,11 +279,24 @@ class PromotionCoordinator:
         if not candidate_validation or not evaluation_validation or not bool(candidate_validation.get("passed")) or not bool(evaluation_validation.get("passed")):
             return None, "candidate_validation_not_ready"
         if (
+            str(audit.get("manifest_id") or "") != manifest_id
+            or str(audit.get("manifest_digest") or "")
+            != str(manifest.get("digest") or "")
+        ):
+            return None, "replay_not_promotion_ready"
+        if (
+            not baseline_version
+            and (
+                audit.get("reason") != "missing_baseline"
+                or audit.get("decision") != "review_only"
+                or bool(audit.get("promotion_ready"))
+            )
+        ):
+            return None, "replay_not_promotion_ready"
+        if baseline_version and (
             audit.get("decision") != PROMOTION_READY
             or not bool(audit.get("promotion_ready"))
             or not bool(audit.get("passed"))
-            or str(audit.get("manifest_id") or "") != manifest_id
-            or str(audit.get("manifest_digest") or "") != str(manifest.get("digest") or "")
             or str(audit.get("baseline_revision") or "") != baseline_version
             or str(audit.get("active_baseline_revision") or "") != baseline_version
         ):
@@ -239,7 +328,9 @@ class PromotionCoordinator:
         observed = int(active["revision"]) if active else 0
         expected = observed if expected_revision is None else int(expected_revision)
         previous = str(active["guidance_version"]) if active else None
-        evidence, refusal = self._promotion_evidence(str(context_id), str(objective_bucket), str(guidance_version), active)
+        evidence, refusal = self.verified_evidence_chain(
+            str(context_id), str(objective_bucket), str(guidance_version), active
+        )
         if evidence is None:
             return PromotionDecision(
                 applied=False, action="promote", context_id=str(context_id), objective_bucket=str(objective_bucket),

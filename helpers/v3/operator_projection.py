@@ -127,7 +127,7 @@ _MIGRATION_PHASES = frozenset(
     }
 )
 _RECEIPT_CATEGORIES = frozenset(
-    {"mutation", "activation", "canary", "fixture", "migration", "privacy", "withdrawal"}
+    {"mutation", "activation", "candidate", "canary", "fixture", "migration", "privacy", "withdrawal"}
 )
 
 

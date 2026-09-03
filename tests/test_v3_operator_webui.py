@@ -143,3 +143,15 @@ def test_overview_exposes_live_autopilot_observability() -> None:
     assert "autopilot_status" in STORE
     assert "startLiveUpdates" in STORE
     assert "document.hidden" in STORE
+    assert "Selected chat" in MAIN
+    assert "Project totals" in MAIN
+    assert "selected_counts" in STORE
+    assert "project_counts" in STORE
+
+
+def test_empty_views_distinguish_no_records_from_projection_failure() -> None:
+    assert "emptyLabel" in STORE
+    assert "No candidates have been recorded for this chat yet." in MAIN
+    assert "No certified evidence has been recorded for this chat yet." in MAIN
+    assert "No receipts have been recorded for this chat yet." in MAIN
+    assert "Unavailable ·" in STORE

@@ -10,6 +10,12 @@ from helpers.extension import Extension
 from usr.plugins.dspy_rlm.helpers import config as config_module
 from usr.plugins.dspy_rlm.helpers import autopilot
 from usr.plugins.dspy_rlm.helpers import paths
+from usr.plugins.dspy_rlm.helpers.autopilot_transition_runner import (
+    ARTIFACT_LOOP_KEY as AUTOPILOT_ARTIFACT_LOOP_KEY,
+    SELECTION_LOOP_KEY as AUTOPILOT_SELECTION_LOOP_KEY,
+    select_guidance,
+)
+from usr.plugins.dspy_rlm.helpers.guidance import render_guidance_artifact
 from usr.plugins.dspy_rlm.helpers.v3 import runtime_composer
 from usr.plugins.dspy_rlm.helpers.v3.canary_runtime import (
     CANARY_ASSIGNMENT_KEY_ENV,
@@ -84,6 +90,8 @@ class DspyRlmGuidance(Extension):
                 loop_data=loop_data,
             )
             params = canary_identity[1] if canary_identity is not None else None
+            persistent = getattr(loop_data, "params_persistent", None)
+            message_ref = getattr(getattr(loop_data, "user_message", None), "id", None)
             if params is not None:
                 params.pop(CANARY_SELECTION_LOOP_KEY, None)
             get_data = getattr(context, "get_data", None)
@@ -143,11 +151,44 @@ class DspyRlmGuidance(Extension):
             # alter Agent Zero's original prompt or initialize/repair storage.
             return
 
-        if not result.applied:
-            return
-        segments = list(result.segments)
+        segments = list(result.segments) if result.applied else list(system_prompt)
         if any(type(segment) is not str for segment in segments):
             return
         if selection is not None and params is not None:
             params[CANARY_SELECTION_LOOP_KEY] = selection
         system_prompt[:] = segments
+        if canary_identity is not None and not offline_replay:
+            try:
+                objective_bucket = str(
+                    kwargs.get("objective_bucket")
+                    or runtime_composer.LEGACY_DEFAULT_OBJECTIVE_BUCKET
+                )
+                transition = (
+                    persistent.get(AUTOPILOT_SELECTION_LOOP_KEY)
+                    if type(persistent) is dict
+                    else None
+                )
+                artifact = (
+                    persistent.get(AUTOPILOT_ARTIFACT_LOOP_KEY)
+                    if type(persistent) is dict
+                    else None
+                )
+                if transition is None and artifact is None and type(message_ref) is str:
+                    # Autopilot compares complete user-message outcomes. Keep
+                    # one arm and one artifact across every tool iteration in
+                    # that message instead of reassigning each prompt rebuild.
+                    transition, artifact = select_guidance(
+                        context_ref=context_id,
+                        objective_bucket=objective_bucket,
+                        exposure_ref=message_ref,
+                        config=cfg,
+                    )
+                    if type(persistent) is dict and transition is not None:
+                        persistent[AUTOPILOT_SELECTION_LOOP_KEY] = transition
+                        persistent[AUTOPILOT_ARTIFACT_LOOP_KEY] = artifact
+                if artifact is not None:
+                    system_prompt.append(render_guidance_artifact(artifact))
+            except Exception:
+                # A malformed or stale optimizer artifact is never allowed to
+                # alter the ordinary prompt.
+                return

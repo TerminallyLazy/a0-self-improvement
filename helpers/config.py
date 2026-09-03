@@ -260,6 +260,7 @@ def normalize_config(config: dict[str, Any] | None) -> dict[str, Any]:
 
     automation_defaults = {
         "mode": "observe",
+        "authority_consent_revision": 0,
         "scope": "project",
         "risk_profile": "balanced",
         "live_refresh_seconds": 2,
@@ -279,6 +280,9 @@ def normalize_config(config: dict[str, Any] | None) -> dict[str, Any]:
     ).strip().lower()
     normalized["automation"] = {
         "mode": mode if mode in {"observe", "review", "autopilot"} else "observe",
+        "authority_consent_revision": _as_int(
+            automation.get("authority_consent_revision"), 0, 0, 1
+        ),
         "scope": scope if scope in {"current_chat", "project"} else "project",
         "risk_profile": (
             risk_profile

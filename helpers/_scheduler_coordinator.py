@@ -121,6 +121,9 @@ class SchedulerCoordinator:
             "requested_by": "manual" if force else "auto",
             "scheduler_mode": "local_multiprocess",
         }
+        from .v3.autopilot_control_plane import effective_config_digest
+
+        payload["autopilot_config_digest"] = effective_config_digest(cfg)
         job_key, created = self.queue.enqueue(context_id, payload, force=force)
         if created:
             previous = self.state.load_context_state(context_id)

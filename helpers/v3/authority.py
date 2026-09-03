@@ -55,6 +55,7 @@ class AuthorityDenied(AuthorityError):
 
 class AuthorityClass(StrEnum):
     OPERATOR_AUTHORITY_GRANT = "operator_authority_grant"
+    AUTOMATIC_TRANSITION_GRANT = "automatic_transition_grant"
     OPERATOR_CONTENT_SESSION = "operator_content_session"
     FIXTURE_USE_GRANT = "fixture_use_grant"
     MODEL_USE_GRANT = "model_use_grant"
@@ -92,6 +93,7 @@ class AuthorityAction(StrEnum):
 class AuthorityPurpose(StrEnum):
     GENESIS = "genesis"
     OPERATOR_MUTATION = "operator_mutation"
+    AUTOMATIC_PROMOTION = "automatic_promotion"
     FIXTURE_AUTHORING = "fixture_authoring"
     FIXTURE_REVIEW = "fixture_review"
     FIXTURE_REPLAY = "fixture_replay"

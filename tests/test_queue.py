@@ -94,3 +94,81 @@ def test_cancel_rejects_a_wrong_lease_and_invalidates_the_current_lease(queue: L
     assert queue.get("job-1")["status"] == "cancelled"
     assert not queue.complete(lease, {"late": True})
     assert not queue.cancel("job-1")
+
+
+def test_only_fenced_candidate_completion_creates_coordinator_approval(
+    queue: LocalMultiprocessQueue,
+) -> None:
+    candidate_id = "candidate-fenced"
+    queue.store.append_candidate(
+        candidate_id, "ctx-1", "reasoning",
+        {"candidate_id": candidate_id, "guidance_version": "guide"},
+        guidance_version="guide",
+    )
+    candidate_digest = queue.store.get_candidate(
+        candidate_id, context_id="ctx-1"
+    )["candidate_digest"]
+    payload = {"job_key": "job-fenced", "autopilot_config_digest": "0" * 64}
+    assert queue.enqueue("ctx-1", payload) == ("job-fenced", True)
+    cancelled = queue.claim("worker-a", 30)
+    assert cancelled is not None
+    assert queue.cancel("job-fenced")
+    assert not queue.complete(
+        cancelled["lease"],
+        {
+            "candidate_id": candidate_id,
+            "candidate_digest": candidate_digest,
+            "automatic_transition_state": "pending_coordinator",
+            "autopilot_config_digest": "0" * 64,
+        },
+        status="candidate",
+    )
+    with queue.store._connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM autopilot_candidate_approvals"
+        ).fetchone()[0] == 0
+
+    assert queue.enqueue(
+        "ctx-other",
+        {"job_key": "job-cross-context", "autopilot_config_digest": "0" * 64},
+    ) == (
+        "job-cross-context", True
+    )
+    cross_context = queue.claim("worker-cross", 30, context_id="ctx-other")
+    assert cross_context is not None
+    assert not queue.complete(
+        cross_context["lease"],
+        {
+            "candidate_id": candidate_id,
+            "candidate_digest": candidate_digest,
+            "automatic_transition_state": "pending_coordinator",
+            "autopilot_config_digest": "0" * 64,
+        },
+        status="candidate",
+    )
+    assert queue.cancel("job-cross-context")
+
+    assert queue.enqueue("ctx-1", payload, force=True) == ("job-fenced", True)
+    current = queue.claim("worker-b", 30)
+    assert current is not None
+    assert queue.complete(
+        current["lease"],
+        {
+            "candidate_id": candidate_id,
+            "candidate_digest": candidate_digest,
+            "automatic_transition_state": "pending_coordinator",
+            "autopilot_config_digest": "0" * 64,
+        },
+        status="candidate",
+    )
+    with queue.store._connect() as connection:
+        approval = connection.execute(
+            "SELECT job_key,fencing_token FROM autopilot_candidate_approvals WHERE candidate_id=?",
+            (candidate_id,),
+        ).fetchone()
+    assert tuple(approval) == ("job-fenced", current["lease"].fencing_token)
+    assert queue.enqueue("ctx-1", payload, force=True) == ("job-fenced", True)
+    replacement = queue.claim("worker-b", 30)
+    assert replacement is not None
+    assert replacement["lease"].fencing_token > current["lease"].fencing_token
+    assert not queue.complete(current["lease"], {"stale": True})

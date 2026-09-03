@@ -9,6 +9,11 @@ from helpers.tool import Response
 from usr.plugins.dspy_rlm.helpers import config as config_module
 from usr.plugins.dspy_rlm.helpers import autopilot
 from usr.plugins.dspy_rlm.helpers import paths
+from usr.plugins.dspy_rlm.helpers.autopilot_transition_runner import (
+    FRAMEWORK_HARD_FAILURE_KEY,
+    FRAMEWORK_OUTCOME_KEY,
+    TERMINAL_OUTCOME_KEY,
+)
 from usr.plugins.dspy_rlm.helpers.v3.observation import (
     RuntimeObservationRequest,
     record_runtime_observation,
@@ -60,6 +65,29 @@ class DspyRlmToolTrace(Extension):
             terminal = response.break_loop
             if type(iteration) is not int or iteration < -1 or type(terminal) is not bool:
                 return
+            params = getattr(loop_data, "params_persistent", None)
+            if type(params) is dict:
+                additional = response.additional
+                explicit_success = (
+                    additional.get("success")
+                    if isinstance(additional, dict)
+                    and type(additional.get("success")) is bool
+                    else None
+                )
+                if explicit_success is False:
+                    params[FRAMEWORK_OUTCOME_KEY] = False
+                elif terminal and params.get(FRAMEWORK_OUTCOME_KEY) is not False:
+                    # ``break_loop`` is the framework-owned successful response
+                    # seam. Non-terminal tools without a structured result stay
+                    # unknown; neither output nor error text is inspected.
+                    params[FRAMEWORK_OUTCOME_KEY] = True
+                if (
+                    isinstance(additional, dict)
+                    and additional.get("hard_failure") is True
+                ):
+                    params[FRAMEWORK_HARD_FAILURE_KEY] = True
+                if terminal:
+                    params[TERMINAL_OUTCOME_KEY] = True
             occurrence_ref = _occurrence_ref(loop_data, terminal=terminal)
             if occurrence_ref is None:
                 return

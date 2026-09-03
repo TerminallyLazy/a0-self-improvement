@@ -506,7 +506,7 @@ def _persist_candidate_artifacts(
     replay_manifest: dict[str, Any] | None,
     summary: dict[str, Any],
     started_at: str,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Append a coherent immutable candidate/run/evaluation/replay record set.
 
     Staging is intentionally the final guidance operation here: it appends the
@@ -566,9 +566,39 @@ def _persist_candidate_artifacts(
         "replay_manifest_id": replay_manifest_id,
     })
     state.store.append_replay_audit(replay_audit_id, candidate_id, replay_audit, manifest_id=replay_manifest_id or None)
+    try:
+        from . import paths as paths_module
+        from .v3.autopilot_publication import publish_legacy_candidate
+
+        publication = publish_legacy_candidate(
+            context_ref=context_id,
+            candidate_id=candidate_id,
+            legacy_store=state.store,
+            pre_cutover_path=paths_module.SAFE_STORE_FILE,
+            manifest_path=paths_module.STORE_AUTHORITY_MANIFEST_FILE,
+        )
+        identifiers.update(
+            {
+                "v3_publication_state": "review_only",
+                "v3_published_count": publication.published_count,
+            }
+        )
+    except Exception:
+        # Candidate generation remains useful when the v3 project scope has not
+        # been initialized yet. The next automatic Genesis pass retries this
+        # idempotent reconciliation.
+        identifiers.update(
+            {
+                "v3_publication_state": "pending_project_setup",
+                "v3_published_count": 0,
+            }
+        )
     return identifiers
 
-def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+def run_optimization_sync(
+    context_id: str, cfg: dict[str, Any], *, force: bool = False,
+    manage_context_state: bool = True,
+) -> dict[str, Any]:
     if not context_id:
         return {"status": "error", "error": "context_id is required"}
 
@@ -590,7 +620,7 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
         }
 
     context_state = state_module.load_context_state(context_id)
-    if not force and context_state.get("optimization_running"):
+    if manage_context_state and not force and context_state.get("optimization_running"):
         return {"status": "skipped", "reason": "optimization already running", "context_state": context_state}
 
     cooldown_hours = int(cfg_opt.get("cooldown_hours", 0) or 0)
@@ -602,7 +632,10 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
             "last_optimization_at": context_state.get("last_optimization_at", ""),
         }
 
-    state_module.mark_optimization_started(context_id, trigger="manual" if force else "auto")
+    if manage_context_state:
+        state_module.mark_optimization_started(
+            context_id, trigger="manual" if force else "auto"
+        )
 
     optimization_result: dict[str, Any] = {
         "status": "skipped",
@@ -643,7 +676,8 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
                 "objective_rows": objective_rows,
                 "promotion_decision": "defer",
             }
-            state_module.mark_optimization_complete(context_id, result)
+            if manage_context_state:
+                state_module.mark_optimization_complete(context_id, result)
             return result
 
         if not objective_rows:
@@ -654,7 +688,8 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
                 "objective_rows": objective_rows,
                 "promotion_decision": "defer",
             }
-            state_module.mark_optimization_complete(context_id, result)
+            if manage_context_state:
+                state_module.mark_optimization_complete(context_id, result)
             return result
 
         if objective_rows:
@@ -671,7 +706,8 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
                 "objective_rows": objective_rows, "trace_summary": summary,
                 "started_at": optimization_result["started_at"],
             })
-            state_module.mark_optimization_complete(context_id, prompt_result)
+            if manage_context_state:
+                state_module.mark_optimization_complete(context_id, prompt_result)
             return prompt_result
         objective_bucket = str((objective_rows[0] if objective_rows else {}).get("objective_bucket", "reasoning") or "reasoning")
         objective_signature = str((objective_rows[0] or {}).get("objective_signature") if objective_rows else "")
@@ -718,6 +754,10 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
                 guidance_text, guidance_meta, validation, matrix_scores, replay, replay_manifest,
                 summary, optimization_result["started_at"],
             )
+            # Worker processes only persist proposals. The framework-owned
+            # message-loop coordinator admits them after fenced job completion,
+            # so a cancelled or lease-lost worker cannot alter live traffic.
+            identifiers["automatic_transition_state"] = "pending_coordinator"
             optimization_result.update(identifiers)
             # The optimizer only stages a candidate. Even a fully-ready replay
             # result needs a distinct coordinator-owned CAS promotion.
@@ -745,7 +785,8 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
                 "objective_signature": objective_signature,
             }
         )
-        state_module.mark_optimization_complete(context_id, optimization_result)
+        if manage_context_state:
+            state_module.mark_optimization_complete(context_id, optimization_result)
         return optimization_result
 
     except Exception as error:
@@ -757,7 +798,8 @@ def run_optimization_sync(context_id: str, cfg: dict[str, Any], *, force: bool =
             "reason": "optimization_exception",
             "promotion_decision": "reject",
         })
-        state_module.mark_optimization_complete(context_id, optimization_result)
+        if manage_context_state:
+            state_module.mark_optimization_complete(context_id, optimization_result)
         return optimization_result
 
 

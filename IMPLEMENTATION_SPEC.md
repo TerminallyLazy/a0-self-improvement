@@ -7,7 +7,7 @@ This is the implementation authority for the v3 redesign of the standalone A0 Se
 - Canonical source: TerminallyLazy/a0-self-improvement
 - Planning baseline: f5d319db98cc6f797811cc0035f88bcb7d9311ec
 - Initial Agent Zero compatibility target: b22a144bf59f15b1516084c9e7b88133ba92c8a9
-- Current plugin version: 2.0.13
+- Current plugin version: 2.1.0
 - Target breaking release: 2.0.0, preceded by 2.0.0-rc.N releases
 - Architecture authority: accepted ADRs 0001 through 0011
 - Ubiquitous language authority: CONTEXT.md
@@ -935,6 +935,8 @@ Implementation may begin when:
 - every slice has an executable Outside-In boundary;
 - no unresolved threshold, replay, migration, worker, UI, or release assumption is treated as a default;
 - automatic authority remains explicitly gated on calibration; and
+- production Autopilot records both deterministic canary arms, decides only at the exact calibrated fixed horizon, treats unknown outcomes as non-evidence, and revalidates the pinned policy, calibration, and plans under an authority write fence around every active-pointer CAS; and
+- production Autopilot keeps one arm assignment for every complete user message, sizes the fixed horizon so combined arm-underflow risk is at most one percent, revalidates the candidate publication against the current Activation Scope on every transition step, and exposes content-free transition states to the live operator activity view; and
 - source, standalone fake provider, clean compatibility, provider, PR/merge, RC, RC exact runtime, final release, marketplace metadata, public-install identity, and final exact-runtime evidence remain separate.
 
 This handoff intentionally makes no code, release, or runtime claim. Those claims begin only in the implementation and evidence gates above.
