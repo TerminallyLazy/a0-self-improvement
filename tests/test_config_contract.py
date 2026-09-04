@@ -21,6 +21,8 @@ def _assert_inert_v2_defaults(config: dict) -> None:
     assert config["enabled"] is False
     assert config["automatic_project_genesis"] is True
     assert config["instrumentation_enabled"] is False
+    assert config["automation"]["mode"] == "observe"
+    assert config["automation"]["authority_consent_revision"] == 0
     assert config["optimization"]["enabled"] is False
     assert config["optimization"]["auto_optimize"] is False
     assert config["prompt"]["inject_guidance"] is False

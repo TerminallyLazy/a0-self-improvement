@@ -131,15 +131,23 @@
               :aria-valuemax="$store.dspyRlm.automation.next_optimization.required_loops"
               :aria-valuetext="$store.dspyRlm.nextOptimizationLabel"
             >
-              <span :style="`width:${$store.dspyRlm.nextOptimizationPercent}%`"></span>
+              <span :style="`transform:scaleX(${$store.dspyRlm.nextOptimizationPercent / 100})`"></span>
             </div>
           </div>
 
+          <p class="metric-scope">Selected chat</p>
           <div class="automation-metrics">
             <div><span>Observations</span><strong x-text="$store.dspyRlm.automation.counts.observations"></strong></div>
             <div><span>Queued work</span><strong x-text="$store.dspyRlm.automation.counts.queued_work"></strong></div>
             <div><span>Candidates</span><strong x-text="$store.dspyRlm.automation.counts.candidates"></strong></div>
             <div><span>Receipts</span><strong x-text="$store.dspyRlm.automation.counts.receipts"></strong></div>
+          </div>
+          <div class="project-totals" x-show="$store.dspyRlm.automation.scope === 'project'">
+            <strong>Project totals</strong>
+            <span x-text="`${$store.dspyRlm.automation.project_counts.observations} observations`"></span>
+            <span x-text="`${$store.dspyRlm.automation.project_counts.queued_work} queued`"></span>
+            <span x-text="`${$store.dspyRlm.automation.project_counts.candidates} candidates`"></span>
+            <span x-text="`${$store.dspyRlm.automation.project_counts.receipts} receipts`"></span>
           </div>
 
           <div class="automation-columns">
@@ -287,7 +295,7 @@
                 <small x-text="candidate.disposition.value"></small>
               </button>
             </template>
-            <p class="empty" x-show="!$store.dspyRlm.filteredCandidates.length">No candidates in this projected disposition.</p>
+            <p class="empty" x-show="!$store.dspyRlm.filteredCandidates.length" x-text="$store.dspyRlm.emptyLabel($store.dspyRlm.candidates.axis, $store.dspyRlm.candidates.items.length ? 'No candidates match this disposition.' : 'No candidates have been recorded for this chat yet.')"></p>
           </aside>
 
           <template x-if="$store.dspyRlm.selectedCandidate">
@@ -320,7 +328,7 @@
                       <div class="right"><span x-text="`${bucket.eligible_count} / ${bucket.required_count}`"></span><span class="pill" x-text="bucket.outcome_state"></span></div>
                     </div>
                   </template>
-                  <p class="empty" x-show="!$store.dspyRlm.selectedCandidate.evidence_buckets.length">unavailable · evidence_buckets_unavailable</p>
+                  <p class="empty" x-show="!$store.dspyRlm.selectedCandidate.evidence_buckets.length">No certified evidence is attached to this review candidate yet.</p>
                 </div>
               </article>
 
@@ -383,7 +391,7 @@
               <template x-for="bucket in $store.dspyRlm.evidenceFixtures.evidence.buckets" :key="bucket.bucket_id">
                 <div class="row"><div><strong x-text="bucket.bucket_id"></strong><small x-text="$store.dspyRlm.reasonLabel(bucket.reason_codes)"></small></div><div class="right"><span x-text="`${bucket.eligible_count} / ${bucket.required_count}`"></span><span class="pill" x-text="bucket.outcome_state"></span></div></div>
               </template>
-              <p class="empty" x-show="!$store.dspyRlm.evidenceFixtures.evidence.buckets.length">unavailable · evidence_projection_unavailable</p>
+              <p class="empty" x-show="!$store.dspyRlm.evidenceFixtures.evidence.buckets.length" x-text="$store.dspyRlm.emptyLabel($store.dspyRlm.evidenceFixtures.evidence, 'No certified evidence has been recorded for this chat yet.')"></p>
             </div>
           </article>
           <article class="panel">
@@ -402,7 +410,7 @@
                 <div class="chips"><span x-text="`training:${family.partition_counts.training || 0}`"></span><span x-text="`tuning:${family.partition_counts.tuning || 0}`"></span><span x-text="`certification_holdout:${family.partition_counts.certification_holdout || 0}`"></span><span x-text="`grant:${family.grant_state}`"></span><span x-text="`eligibility:${family.eligibility_state}`"></span></div>
               </div>
             </template>
-            <p class="empty" x-show="!$store.dspyRlm.evidenceFixtures.fixtures.families.length">unavailable · fixture_family_projection_unavailable</p>
+            <p class="empty" x-show="!$store.dspyRlm.evidenceFixtures.fixtures.families.length" x-text="$store.dspyRlm.emptyLabel($store.dspyRlm.evidenceFixtures.fixtures, 'No fixture families have been created for this chat yet.')"></p>
           </div>
         </article>
       </section>
@@ -467,13 +475,13 @@
           <article class="panel">
             <h3>Authority grants</h3>
             <p class="axis-line"><span x-text="$store.dspyRlm.policyCapabilities.grants.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.policyCapabilities.grants.reason_codes)"></small></p>
-            <div class="rows"><template x-for="grant in $store.dspyRlm.policyCapabilities.grants.items" :key="grant.grant_ref"><div class="row row-wrap"><div><strong x-text="grant.grant_kind"></strong><small x-text="grant.grant_ref"></small></div><div class="chips"><span x-text="grant.state"></span><span x-text="grant.expiry_state"></span><span x-text="grant.authority_ceiling"></span></div></div></template><p class="empty" x-show="!$store.dspyRlm.policyCapabilities.grants.items.length">unavailable · grants_projection_unavailable</p></div>
+            <div class="rows"><template x-for="grant in $store.dspyRlm.policyCapabilities.grants.items" :key="grant.grant_ref"><div class="row row-wrap"><div><strong x-text="grant.grant_kind"></strong><small x-text="grant.grant_ref"></small></div><div class="chips"><span x-text="grant.state"></span><span x-text="grant.expiry_state"></span><span x-text="grant.authority_ceiling"></span></div></div></template><p class="empty" x-show="!$store.dspyRlm.policyCapabilities.grants.items.length" x-text="$store.dspyRlm.emptyLabel($store.dspyRlm.policyCapabilities.grants, 'No authority grants have been recorded for this chat yet.')"></p></div>
             <p class="local-instruction"><span>Local step-up:</span> <strong x-text="$store.dspyRlm.policyCapabilities.local_step_up_instruction_code"></strong></p>
           </article>
           <article class="panel">
             <h3>Operational budgets</h3>
             <p class="axis-line"><span x-text="$store.dspyRlm.policyCapabilities.budgets.state"></span><small x-text="$store.dspyRlm.reasonLabel($store.dspyRlm.policyCapabilities.budgets.reason_codes)"></small></p>
-            <div class="rows"><template x-for="budget in $store.dspyRlm.policyCapabilities.budgets.items" :key="budget.budget_id"><div class="row row-wrap"><div><strong x-text="budget.budget_id"></strong><small x-text="budget.state"></small></div><div class="chips"><span x-text="`limit:${budget.limit_units}`"></span><span x-text="`reserved:${budget.reserved_units}`"></span><span x-text="`consumed:${budget.consumed_units}`"></span></div></div></template><p class="empty" x-show="!$store.dspyRlm.policyCapabilities.budgets.items.length">unavailable · budgets_projection_unavailable</p></div>
+            <div class="rows"><template x-for="budget in $store.dspyRlm.policyCapabilities.budgets.items" :key="budget.budget_id"><div class="row row-wrap"><div><strong x-text="budget.budget_id"></strong><small x-text="budget.state"></small></div><div class="chips"><span x-text="`limit:${budget.limit_units}`"></span><span x-text="`reserved:${budget.reserved_units}`"></span><span x-text="`consumed:${budget.consumed_units}`"></span></div></div></template><p class="empty" x-show="!$store.dspyRlm.policyCapabilities.budgets.items.length" x-text="$store.dspyRlm.emptyLabel($store.dspyRlm.policyCapabilities.budgets, 'No operational budgets have been recorded for this chat yet.')"></p></div>
           </article>
         </div>
       </section>
@@ -496,7 +504,7 @@
                 <div><div class="panel-title-row"><strong x-text="receipt.action"></strong><span class="pill" :class="$store.dspyRlm.axisClass(receipt)" x-text="receipt.state"></span></div><p><span x-text="receipt.category"></span> · <span x-text="receipt.receipt_ref"></span></p><small x-text="$store.dspyRlm.observedLabel(receipt.observed_at)"></small><div class="chips"><template x-for="related in receipt.related_receipt_refs" :key="related"><span x-text="related"></span></template></div></div>
               </article>
             </template>
-            <p class="empty" x-show="!$store.dspyRlm.filteredReceipts.length">No receipts in this exact category projection.</p>
+            <p class="empty" x-show="!$store.dspyRlm.filteredReceipts.length" x-text="$store.dspyRlm.emptyLabel($store.dspyRlm.receiptsAudit.receipts, $store.dspyRlm.receiptsAudit.items.length ? 'No receipts match this category.' : 'No receipts have been recorded for this chat yet.')"></p>
           </div>
         </article>
       </section>
@@ -650,12 +658,12 @@
       #a0si-operator .automation-next-copy strong { color:var(--a0si-soft); font-size:12px; font-weight:650; }
       #a0si-operator .automation-next-copy span { min-width:0; color:var(--a0si-ink); font-size:13px; font-weight:750; text-align:right; overflow-wrap:anywhere; }
       #a0si-operator .automation-next-track { position:relative; height:10px; overflow:hidden; border:1px solid rgba(142,171,255,.18); border-radius:999px; background:rgba(3,11,24,.78); box-shadow:inset 0 1px 3px rgba(0,0,0,.42),0 1px 0 rgba(255,255,255,.025); }
-      #a0si-operator .automation-next-track > span { position:relative; display:block; height:100%; overflow:hidden; border-radius:inherit; background:linear-gradient(90deg,var(--a0si-accent),#789cff 56%,var(--a0si-ok)); box-shadow:0 0 14px rgba(98,223,170,.34),inset 0 1px 0 rgba(255,255,255,.28); transition:width .65s cubic-bezier(.22,1,.36,1); }
+      #a0si-operator .automation-next-track > span { position:relative; display:block; width:100%; height:100%; overflow:hidden; border-radius:inherit; background:linear-gradient(90deg,var(--a0si-accent),#789cff 56%,var(--a0si-ok)); box-shadow:inset 0 1px 0 rgba(255,255,255,.28); transform-origin:left center; transition:transform .65s cubic-bezier(.22,1,.36,1); }
       #a0si-operator .automation-next-track > span::after { position:absolute; inset:0; content:""; background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.32) 48%,transparent 66%); transform:translateX(-115%); }
       #a0si-operator .automation-next.is-collecting .automation-next-track > span::after { animation:a0si-progress-glint 2.2s ease-in-out infinite; }
       #a0si-operator .automation-next.is-ready .automation-next-track > span,
-      #a0si-operator .automation-next.is-queued .automation-next-track > span { box-shadow:0 0 18px rgba(98,223,170,.52),inset 0 1px 0 rgba(255,255,255,.34); }
-      #a0si-operator .automation-next.is-cooldown .automation-next-track > span { background:linear-gradient(90deg,#d89a42,var(--a0si-warn)); box-shadow:0 0 12px rgba(255,196,93,.25); }
+      #a0si-operator .automation-next.is-queued .automation-next-track > span { box-shadow:inset 0 1px 0 rgba(255,255,255,.34); }
+      #a0si-operator .automation-next.is-cooldown .automation-next-track > span { background:linear-gradient(90deg,#d89a42,var(--a0si-warn)); }
       #a0si-operator .automation-next.is-disabled .automation-next-track > span,
       #a0si-operator .automation-next.is-unavailable .automation-next-track > span { background:var(--a0si-soft); box-shadow:none; }
       @keyframes a0si-progress-glint { 0%,38% { transform:translateX(-115%); } 72%,100% { transform:translateX(115%); } }
@@ -667,6 +675,10 @@
       #a0si-operator .automation-metrics > div { display:grid; gap:5px; min-width:0; padding:12px; border:1px solid var(--a0si-line); border-radius:9px; background:rgba(255,255,255,.035); }
       #a0si-operator .automation-metrics span { color:var(--a0si-soft); font-size:12px; }
       #a0si-operator .automation-metrics strong { font-size:22px; }
+      #a0si-operator .metric-scope { margin:0; color:var(--a0si-soft); font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+      #a0si-operator .project-totals { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding:10px 12px; border:1px solid var(--a0si-line); border-radius:9px; background:rgba(1,7,15,.28); }
+      #a0si-operator .project-totals strong { color:var(--a0si-accent-bright); }
+      #a0si-operator .project-totals span { color:var(--a0si-soft); }
       #a0si-operator .automation-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; min-width:0; }
       #a0si-operator .automation-columns > section { min-width:0; padding:14px; border:1px solid var(--a0si-line); border-radius:10px; background:rgba(1,7,15,.28); }
       #a0si-operator .automation-columns h4,

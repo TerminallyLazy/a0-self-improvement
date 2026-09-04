@@ -95,6 +95,7 @@ function unavailableAutomation() {
     generation: { state: "blocked", gates: [] },
     promotion: { state: "blocked", gates: [] },
     counts: { observations: 0, candidates: 0, receipts: 0, queued_work: 0 },
+    project_counts: { observations: 0, candidates: 0, receipts: 0, queued_work: 0 },
     workers: { desired: 0, running: 0, state: "unavailable" },
     next_optimization: {
       state: "unavailable",
@@ -122,6 +123,10 @@ function normalizeAutomation(raw, contextId) {
     })) : [],
   });
   const counts = raw.counts && typeof raw.counts === "object" ? raw.counts : {};
+  const selectedCounts = raw.selected_counts && typeof raw.selected_counts === "object"
+    ? raw.selected_counts : counts;
+  const projectCounts = raw.project_counts && typeof raw.project_counts === "object"
+    ? raw.project_counts : counts;
   const workers = raw.workers && typeof raw.workers === "object" ? raw.workers : {};
   const next = raw.next_optimization && typeof raw.next_optimization === "object"
     ? raw.next_optimization : {};
@@ -138,10 +143,16 @@ function normalizeAutomation(raw, contextId) {
     generation: normalizeGateGroup(raw.generation),
     promotion: normalizeGateGroup(raw.promotion),
     counts: {
-      observations: safeCount(counts.observations),
-      candidates: safeCount(counts.candidates),
-      receipts: safeCount(counts.receipts),
-      queued_work: safeCount(counts.queued_work),
+      observations: safeCount(selectedCounts.observations),
+      candidates: safeCount(selectedCounts.candidates),
+      receipts: safeCount(selectedCounts.receipts),
+      queued_work: safeCount(selectedCounts.queued_work),
+    },
+    project_counts: {
+      observations: safeCount(projectCounts.observations),
+      candidates: safeCount(projectCounts.candidates),
+      receipts: safeCount(projectCounts.receipts),
+      queued_work: safeCount(projectCounts.queued_work),
     },
     workers: {
       desired: safeCount(workers.desired),
@@ -885,5 +896,13 @@ export const store = createStore("dspyRlm", {
   reasonLabel(values) {
     const codes = safeCodes(values);
     return codes.length ? codes.join(" · ") : "no_reason_code";
+  },
+
+  emptyLabel(value, emptyCopy) {
+    const state = safeToken(value?.state);
+    if (state === "unavailable") {
+      return `Unavailable · ${this.reasonLabel(value?.reason_codes)}`;
+    }
+    return emptyCopy;
   },
 });

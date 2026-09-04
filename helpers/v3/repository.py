@@ -142,6 +142,8 @@ CREATE TABLE typed_records (
   manifest_link_count INTEGER NOT NULL CHECK(manifest_link_count >= 0),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+CREATE INDEX idx_typed_records_context_kind_created
+  ON typed_records(context_ref, record_kind, created_at, record_id);
 
 CREATE TABLE record_links (
   source_id TEXT NOT NULL,
@@ -859,6 +861,62 @@ class V3Reader(_RecordReader):
             for row in rows
         )
 
+    def list_records_for_context_kinds(
+        self, context_ref: str, record_kinds: tuple[str, ...], *, maximum: int
+    ) -> tuple[StoredRecordObservation, ...]:
+        """Return complete verified rows for a small explicit kind set."""
+
+        _validate_text(context_ref, "context_ref")
+        if (
+            type(record_kinds) is not tuple
+            or not record_kinds
+            or len(record_kinds) > 16
+            or any(type(kind) is not str or not kind for kind in record_kinds)
+            or len(set(record_kinds)) != len(record_kinds)
+        ):
+            raise SchemaValidationError("record_kinds must be a unique bounded tuple")
+        admitted_maximum = self._enumeration_maximum(maximum)
+        placeholders = ",".join("?" for _ in record_kinds)
+        parameters = (context_ref, *record_kinds)
+        count = int(
+            self._connection.execute(
+                f"SELECT count(*) FROM typed_records WHERE context_ref=? AND record_kind IN ({placeholders})",
+                parameters,
+            ).fetchone()[0]
+        )
+        if count > admitted_maximum:
+            raise V3RepositoryError("record-kind enumeration bound exceeded")
+        rows = self._connection.execute(
+            f"""SELECT * FROM typed_records
+                  WHERE context_ref=? AND record_kind IN ({placeholders})
+                  ORDER BY created_at, record_id LIMIT ?""",
+            (*parameters, admitted_maximum),
+        ).fetchall()
+        return tuple(
+            StoredRecordObservation(self._typed_from_row(row), row["created_at"])
+            for row in rows
+        )
+
+    def count_records_for_context_kinds(
+        self, context_ref: str, record_kinds: tuple[str, ...]
+    ) -> int:
+        _validate_text(context_ref, "context_ref")
+        if (
+            type(record_kinds) is not tuple
+            or not record_kinds
+            or len(record_kinds) > 16
+            or any(type(kind) is not str or not kind for kind in record_kinds)
+            or len(set(record_kinds)) != len(record_kinds)
+        ):
+            raise SchemaValidationError("record_kinds must be a unique bounded tuple")
+        placeholders = ",".join("?" for _ in record_kinds)
+        return int(
+            self._connection.execute(
+                f"SELECT count(*) FROM typed_records WHERE context_ref=? AND record_kind IN ({placeholders})",
+                (context_ref, *record_kinds),
+            ).fetchone()[0]
+        )
+
     def count_domain_events_for_context(self, context_ref: str) -> int:
         _validate_text(context_ref, "context_ref")
         row = self._connection.execute(
@@ -1003,6 +1061,16 @@ class V3Repository(_RecordReader):
             connection.close()
             raise
         return cls(store_path, connection, registry)
+
+    def ensure_query_indexes(self) -> None:
+        """Install idempotent read indexes during an explicit writer workflow."""
+
+        if self._closed or self._in_transaction:
+            raise V3RepositoryError("query indexes require an idle open repository")
+        self._connection.execute(
+            """CREATE INDEX IF NOT EXISTS idx_typed_records_context_kind_created
+                 ON typed_records(context_ref, record_kind, created_at, record_id)"""
+        )
 
     @contextmanager
     def transaction(self) -> Iterator["V3Transaction"]:

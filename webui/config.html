@@ -24,6 +24,7 @@
           if (typeof config !== 'object' || config === null) config = {};
           const automation = this._ensureSection(config, 'automation', {
             mode: 'observe',
+            authority_consent_revision: 0,
             scope: 'project',
             risk_profile: 'balanced',
             live_refresh_seconds: 2,
@@ -40,6 +41,7 @@
           const rlm = this._ensureSection(config, 'rlm', {});
           this.selectedAutomation = mode;
           automation.mode = mode;
+          automation.authority_consent_revision = mode === 'autopilot' ? 1 : 0;
           automation.scope = automation.scope === 'current_chat' ? 'current_chat' : 'project';
           automation.include_conversation_content = false;
           automation.require_replay = true;
@@ -393,6 +395,7 @@
         }
         let automation = ensureSection(config, 'automation', {
           mode: 'observe',
+          authority_consent_revision: 0,
           scope: 'project',
           risk_profile: 'balanced',
           live_refresh_seconds: 2,
@@ -403,7 +406,7 @@
           automatic_rollback: true,
         });
         if (!automation) {
-          automation = { mode: 'observe', scope: 'project', risk_profile: 'balanced' };
+          automation = { mode: 'observe', authority_consent_revision: 0, scope: 'project', risk_profile: 'balanced' };
           config.automation = automation;
         }
 
@@ -462,6 +465,7 @@
         config.prompt_optimization = promptOptimization;
         config.automation = automation;
         if (!['observe', 'review', 'autopilot'].includes(automation.mode)) automation.mode = 'observe';
+        automation.authority_consent_revision = toInt(automation.authority_consent_revision, 0, 0, 1);
         if (!['current_chat', 'project'].includes(automation.scope)) automation.scope = 'project';
         if (!['safe', 'balanced', 'aggressive'].includes(automation.risk_profile)) automation.risk_profile = 'balanced';
         automation.live_refresh_seconds = toInt(automation.live_refresh_seconds, 2, 1, 30);
@@ -916,7 +920,7 @@
                 <strong>Review</strong><small>Run RLM/GEPA and prepare candidates for approval.</small>
               </button>
               <button type="button" class="automation-option" :class="{ 'is-selected': selectedAutomation === 'autopilot' }" @click="applyAutomation('autopilot')">
-                <strong>Autopilot <span>Experimental</span></strong><small>Generate candidates automatically and expose every v3 canary, activation, and rollback blocker. This release cannot self-grant production promotion authority.</small>
+                <strong>Autopilot <span>Experimental</span></strong><small>One-time authorization for the bounded loop: generate candidates, compare live canary arms, promote, monitor, and roll back under exact signed policy.</small>
               </button>
             </div>
             <div class="automation-controls">
@@ -1187,12 +1191,13 @@
               </div>
               <div class="prompt-lab__group">
                 <h3>Canary and rollback</h3>
-                <label>Canary traffic (%)<input type="number" min="1" max="100" x-model.number="config.prompt_optimization.canary_percentage" /></label>
-                <label>Minimum observations<input type="number" min="3" max="1000" x-model.number="config.prompt_optimization.canary_min_observations" /></label>
-                <label>Maximum observations<input type="number" min="3" max="5000" x-model.number="config.prompt_optimization.canary_max_observations" /></label>
+                <label>Candidate canary traffic (%)<input type="number" min="1" max="100" x-model.number="config.prompt_optimization.canary_percentage" /></label>
+                <label>Minimum observations per arm<input type="number" min="3" max="1000" x-model.number="config.prompt_optimization.canary_min_observations" /></label>
+                <label>Post-promotion monitor horizon<input type="number" min="3" max="5000" x-model.number="config.prompt_optimization.canary_max_observations" /></label>
                 <label class="dspy-field-toggle"><span>Automatic rollback</span><label class="toggle" :title="selectedAutomation === 'autopilot' ? 'Autopilot requires automatic rollback' : ''"><input type="checkbox" x-model="config.prompt_optimization.rollback.enabled" :disabled="selectedAutomation === 'autopilot'" /><span class="slider"></span></label></label>
-                <label>Maximum score regression<input type="number" min="0" max="1" step="0.01" x-model.number="config.prompt_optimization.rollback.maximum_score_regression" /></label>
-                <label>Failure-rate increase<input type="number" min="0" max="1" step="0.01" x-model.number="config.prompt_optimization.rollback.maximum_failure_rate_increase" /></label>
+                <label>Replay/prompt score regression<input type="number" min="0" max="1" step="0.01" x-model.number="config.prompt_optimization.rollback.maximum_score_regression" /></label>
+                <label>Live failure-rate increase<input type="number" min="0" max="1" step="0.01" x-model.number="config.prompt_optimization.rollback.maximum_failure_rate_increase" /></label>
+                <small>The canary horizon is sized automatically so both deterministic traffic arms can reach the minimum. Unknown outcomes never count toward promotion.</small>
               </div>
               <aside class="prompt-lab__protected">
                 <h3>Always protected</h3>

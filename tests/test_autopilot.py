@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import sqlite3
 from types import SimpleNamespace
 
 from usr.plugins.dspy_rlm.api import autopilot_status
-from usr.plugins.dspy_rlm.helpers import autopilot, config
+from usr.plugins.dspy_rlm.helpers import autopilot, config, store as store_module
 
 
 def test_autopilot_mode_is_one_switch_but_conversation_content_stays_excluded() -> None:
@@ -12,6 +13,7 @@ def test_autopilot_mode_is_one_switch_but_conversation_content_stays_excluded() 
         {
             "automation": {
                 "mode": "autopilot",
+                "authority_consent_revision": 1,
                 "capture_system_prompts": True,
                 "include_conversation_content": True,
             }
@@ -20,6 +22,7 @@ def test_autopilot_mode_is_one_switch_but_conversation_content_stays_excluded() 
 
     assert configured["automation"] == {
         "mode": "autopilot",
+        "authority_consent_revision": 1,
         "scope": "project",
         "risk_profile": "balanced",
         "live_refresh_seconds": 2,
@@ -45,6 +48,47 @@ def test_review_generates_candidates_without_requesting_automatic_promotion() ->
     assert configured["optimization"]["auto_optimize"] is True
     assert configured["optimization"]["auto_promote"] is False
     assert configured["prompt_optimization"]["activation_mode"] == "manual"
+
+
+def test_transition_runner_status_requires_fencing_and_outcome_tables(
+    tmp_path, monkeypatch,
+) -> None:
+    store = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE autopilot_transitions(policy_id TEXT,calibration_id TEXT,canary_plan_id TEXT,monitor_plan_id TEXT,canary_control_observations INTEGER)"
+        )
+    monkeypatch.setattr(autopilot_status.paths, "STORE_FILE", store)
+    monkeypatch.setattr(
+        autopilot_status, "autopilot_transition_runtime_ready", lambda _path: True
+    )
+    assert autopilot_status._transition_runner_ready() is False
+    migrated = tmp_path / "migrated.sqlite3"
+    store_module.Store(migrated)
+    monkeypatch.setattr(autopilot_status.paths, "STORE_FILE", migrated)
+    assert autopilot_status._transition_runner_ready() is True
+
+
+def test_legacy_status_keeps_job_visibility_before_transition_migration(
+    tmp_path, monkeypatch,
+) -> None:
+    store = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(store) as connection:
+        connection.execute(
+            "CREATE TABLE jobs(job_key TEXT,context_id TEXT,status TEXT,updated_at REAL)"
+        )
+        connection.execute(
+            "INSERT INTO jobs VALUES('job-1','chat-main','running',1)"
+        )
+    monkeypatch.setattr(autopilot_status.paths, "STORE_FILE", store)
+
+    project, selected, recent = autopilot_status._legacy_runtime(
+        ("chat-main",), selected_context_ref="chat-main"
+    )
+
+    assert project == {"running": 1}
+    assert selected == {"running": 1}
+    assert recent[0]["activity_id"] == "job-1"
 
 
 def test_project_loop_schedules_each_eligible_chat_without_conversation_text(
@@ -95,7 +139,10 @@ def test_project_loop_schedules_each_eligible_chat_without_conversation_text(
     cfg = {
         "enabled": True,
         "instrumentation_enabled": True,
-        "automation": {"mode": "autopilot", "scope": "project"},
+        "automation": {
+            "mode": "autopilot", "authority_consent_revision": 1,
+            "scope": "project",
+        },
         "optimization": {
             "enabled": True,
             "auto_optimize": True,
@@ -171,10 +218,20 @@ def test_live_status_separates_generation_from_promotion_authority(monkeypatch) 
             "calibration_state": "approved",
             "activation_mode": "auto_after_canary",
             "automatic_authority_state": "unavailable",
+            "project_counts": {
+                "observations": 41,
+                "candidates": 6,
+                "receipts": 19,
+            },
             "recent": [],
         },
     )
-    monkeypatch.setattr(autopilot_status, "_legacy_runtime", lambda _context: ({}, []))
+    monkeypatch.setattr(
+        autopilot_status,
+        "_legacy_runtime",
+        lambda _contexts, **_kwargs: ({}, {}, []),
+    )
+    monkeypatch.setattr(autopilot_status, "_transition_runner_ready", lambda: True)
     monkeypatch.setattr(
         autopilot_status.dependencies,
         "dependency_diagnostics",
@@ -195,7 +252,10 @@ def test_live_status_separates_generation_from_promotion_authority(monkeypatch) 
     configured = config.normalize_config(
         {
             "enabled": True,
-            "automation": {"mode": "autopilot", "capture_system_prompts": True},
+            "automation": {
+                "mode": "autopilot", "authority_consent_revision": 1,
+                "capture_system_prompts": True,
+            },
             "prompt_optimization": {"allow_prompt_capture": True},
         }
     )
@@ -209,6 +269,24 @@ def test_live_status_separates_generation_from_promotion_authority(monkeypatch) 
     assert result["cycle_state"] == "awaiting_authority"
     assert result["context_count"] == 1
     assert result["conversation_content"] == "excluded"
+    assert result["counts"] == {
+        "observations": 41,
+        "candidates": 6,
+        "receipts": 19,
+        "queued_work": 0,
+    }
+    assert result["selected_counts"] == {
+        "observations": 14,
+        "candidates": 2,
+        "receipts": 7,
+        "queued_work": 0,
+    }
+    assert result["project_counts"] == {
+        "observations": 41,
+        "candidates": 6,
+        "receipts": 19,
+        "queued_work": 0,
+    }
     assert result["next_optimization"] == {
         "state": "collecting",
         "completed_loops": 8,
@@ -223,5 +301,4 @@ def test_live_status_separates_generation_from_promotion_authority(monkeypatch) 
     }
     assert blocked == {
         "automatic_activation_authority": "automatic_activation_authority_missing",
-        "automatic_transition_runner": "production_automation_not_available",
     }

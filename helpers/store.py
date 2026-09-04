@@ -7,8 +7,12 @@ interpreted as executable instructions.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
+import os
 import sqlite3
+import stat
 import threading
 import time
 from hashlib import sha256
@@ -17,7 +21,7 @@ from typing import Any, Iterable, Mapping
 
 from .paths import STORE_FILE
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 12
 _CONNECTION_LOCK = threading.RLock()
 
 
@@ -44,6 +48,27 @@ def _digest(value: Any) -> str:
 
 def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
+
+
+@contextmanager
+def _migration_lock(db_path: Path):
+    """Serialize non-idempotent DDL across WebUI and worker processes."""
+
+    lock_path = db_path.with_name(f"{db_path.name}.migrate.lock")
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(lock_path, flags, 0o600)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid():
+            raise PermissionError("migration lock is not an owner-controlled file")
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 MIGRATIONS: tuple[tuple[int, str], ...] = (
@@ -260,6 +285,125 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
     CREATE INDEX IF NOT EXISTS idx_prompt_activation_audits_context_created
       ON prompt_activation_audits(context_id, created_at DESC);
     """),
+    (3, """
+    CREATE TABLE IF NOT EXISTS autopilot_transitions (
+      candidate_id TEXT PRIMARY KEY,
+      context_id TEXT NOT NULL,
+      objective_bucket TEXT NOT NULL,
+      guidance_version TEXT NOT NULL,
+      baseline_guidance_version TEXT,
+      expected_active_revision INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      canary_observations INTEGER NOT NULL DEFAULT 0,
+      canary_failures INTEGER NOT NULL DEFAULT 0,
+      monitor_observations INTEGER NOT NULL DEFAULT 0,
+      monitor_failures INTEGER NOT NULL DEFAULT 0,
+      reason_code TEXT NOT NULL,
+      created_at REAL NOT NULL,
+      updated_at REAL NOT NULL,
+      FOREIGN KEY(guidance_version) REFERENCES guidance_versions(guidance_version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_autopilot_transitions_scope_updated
+      ON autopilot_transitions(context_id, objective_bucket, updated_at DESC);
+    """),
+    (4, """
+    CREATE INDEX IF NOT EXISTS idx_autopilot_transitions_live_bucket
+      ON autopilot_transitions(context_id, objective_bucket, created_at)
+      WHERE state IN ('canary','monitoring');
+    CREATE INDEX IF NOT EXISTS idx_autopilot_transitions_live_context
+      ON autopilot_transitions(context_id, created_at)
+      WHERE state IN ('canary','monitoring');
+    """),
+    (5, """
+    CREATE TABLE IF NOT EXISTS active_guidance_revisions (
+      context_id TEXT NOT NULL,
+      objective_bucket TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      updated_at REAL NOT NULL,
+      PRIMARY KEY(context_id,objective_bucket)
+    );
+    INSERT OR IGNORE INTO active_guidance_revisions(context_id,objective_bucket,revision,updated_at)
+      SELECT context_id,objective_bucket,revision,updated_at FROM active_guidance;
+    """),
+    (6, """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_autopilot_transitions_one_live_bucket
+      ON autopilot_transitions(context_id, objective_bucket)
+      WHERE state IN ('canary','promoting','monitoring','rolling_back');
+    """),
+    (7, """
+    ALTER TABLE autopilot_transitions ADD COLUMN policy_id TEXT;
+    ALTER TABLE autopilot_transitions ADD COLUMN policy_digest TEXT;
+    ALTER TABLE autopilot_transitions ADD COLUMN calibration_id TEXT;
+    ALTER TABLE autopilot_transitions ADD COLUMN calibration_digest TEXT;
+    """),
+    (8, """
+    ALTER TABLE autopilot_transitions ADD COLUMN canary_plan_id TEXT;
+    ALTER TABLE autopilot_transitions ADD COLUMN canary_plan_digest TEXT;
+    ALTER TABLE autopilot_transitions ADD COLUMN monitor_plan_id TEXT;
+    ALTER TABLE autopilot_transitions ADD COLUMN monitor_plan_digest TEXT;
+    ALTER TABLE autopilot_transitions ADD COLUMN canary_control_observations INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE autopilot_transitions ADD COLUMN canary_control_failures INTEGER NOT NULL DEFAULT 0;
+    """),
+    (9, """
+    CREATE TABLE IF NOT EXISTS autopilot_candidate_approvals (
+      candidate_id TEXT PRIMARY KEY,
+      job_key TEXT NOT NULL,
+      fencing_token INTEGER NOT NULL,
+      candidate_digest TEXT NOT NULL,
+      approved_at REAL NOT NULL,
+      FOREIGN KEY(candidate_id) REFERENCES candidates(candidate_id)
+    );
+    CREATE TABLE IF NOT EXISTS autopilot_transition_outcomes (
+      candidate_id TEXT NOT NULL,
+      exposure_ref TEXT NOT NULL,
+      transition_state TEXT NOT NULL,
+      arm TEXT NOT NULL,
+      success INTEGER NOT NULL,
+      hard_failure INTEGER NOT NULL DEFAULT 0,
+      created_at REAL NOT NULL,
+      PRIMARY KEY(candidate_id, exposure_ref),
+      FOREIGN KEY(candidate_id) REFERENCES autopilot_transitions(candidate_id)
+    );
+    CREATE TABLE IF NOT EXISTS autopilot_candidate_considerations (
+      candidate_id TEXT PRIMARY KEY,
+      result TEXT NOT NULL,
+      considered_at REAL NOT NULL,
+      FOREIGN KEY(candidate_id) REFERENCES candidates(candidate_id)
+    );
+    """),
+    (10, """
+    ALTER TABLE autopilot_candidate_approvals ADD COLUMN config_digest TEXT;
+    CREATE TABLE IF NOT EXISTS job_fence_counters (
+      job_key TEXT PRIMARY KEY,
+      last_token INTEGER NOT NULL
+    );
+    INSERT OR REPLACE INTO job_fence_counters(job_key,last_token)
+      SELECT j.job_key,
+             MAX(j.attempts, COALESCE(l.fencing_token, 0))
+        FROM jobs AS j
+   LEFT JOIN job_leases AS l ON l.job_key=j.job_key;
+    UPDATE autopilot_transitions
+       SET state='recovery_required',
+           reason_code='receipt_upgrade_required',
+           updated_at=strftime('%s','now')
+     WHERE state IN ('canary','promoting','monitoring','rolling_back');
+    """),
+    (11, """
+    ALTER TABLE optimization_runs ADD COLUMN run_digest TEXT;
+    UPDATE autopilot_transitions
+       SET state='recovery_required',
+           reason_code='run_digest_upgrade_required',
+           updated_at=strftime('%s','now')
+     WHERE state IN ('canary','promoting','monitoring','rolling_back');
+    """),
+    (12, """
+    ALTER TABLE autopilot_transitions ADD COLUMN source_candidate_digest TEXT;
+    UPDATE autopilot_transitions
+       SET state='recovery_required',
+           reason_code='publication_binding_upgrade_required',
+           updated_at=strftime('%s','now')
+     WHERE state IN ('canary','promoting','monitoring','rolling_back');
+    """),
 )
 
 
@@ -281,7 +425,7 @@ class Store:
         return conn
 
     def migrate(self) -> None:
-        with _CONNECTION_LOCK, self._connect() as conn:
+        with _CONNECTION_LOCK, _migration_lock(self.db_path), self._connect() as conn:
             self._prepare_legacy_schema(conn)
             conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at REAL NOT NULL)")
             conn.execute("CREATE TABLE IF NOT EXISTS legacy_imports (source TEXT PRIMARY KEY, imported_at REAL NOT NULL)")
@@ -301,7 +445,26 @@ class Store:
                         if conn.in_transaction:
                             conn.rollback()
                         raise
+            self._backfill_run_digests(conn)
             self._import_legacy_rows(conn)
+
+    @staticmethod
+    def _backfill_run_digests(conn: sqlite3.Connection) -> None:
+        """Bind pre-v11 run bodies to their canonical digest when decodable."""
+
+        for row in conn.execute(
+            "SELECT run_id,run_json FROM optimization_runs WHERE run_digest IS NULL"
+        ):
+            try:
+                body = json.loads(row["run_json"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(body, dict):
+                continue
+            conn.execute(
+                "UPDATE optimization_runs SET run_digest=? WHERE run_id=? AND run_digest IS NULL",
+                (_digest(body), str(row["run_id"])),
+            )
 
     @staticmethod
     def _table_columns(conn: sqlite3.Connection, name: str) -> set[str]:
@@ -437,6 +600,52 @@ class Store:
                 (str(candidate_id), run_id, str(context_id), str(objective_bucket), guidance_version, _json(body), _digest(body), _now()))
         return str(candidate_id)
 
+    @staticmethod
+    def _candidate_envelope(row: sqlite3.Row) -> dict[str, Any]:
+        item = dict(row)
+        item["candidate"] = _decode(item.pop("candidate_json"))
+        return item
+
+    def get_candidate(
+        self, candidate_id: str, *, context_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Return one immutable candidate envelope by exact identity."""
+
+        sql = """SELECT candidate_id,run_id,context_id,objective_bucket,
+                        guidance_version,candidate_json,candidate_digest,created_at
+                 FROM candidates WHERE candidate_id=?"""
+        params: list[Any] = [str(candidate_id)]
+        if context_id is not None:
+            sql += " AND context_id=?"
+            params.append(str(context_id))
+        with self._connect() as conn:
+            row = conn.execute(sql, params).fetchone()
+        return None if row is None else self._candidate_envelope(row)
+
+    def list_candidates(
+        self,
+        context_id: str,
+        *,
+        after: tuple[float, str] | None = None,
+        limit: int = 128,
+    ) -> list[dict[str, Any]]:
+        """Return one bounded page of immutable candidate envelopes, oldest first."""
+
+        bounded_limit = max(1, min(int(limit), 512))
+        sql = """SELECT candidate_id,run_id,context_id,objective_bucket,
+                        guidance_version,candidate_json,candidate_digest,created_at
+                 FROM candidates WHERE context_id=?"""
+        params: list[Any] = [str(context_id)]
+        if after is not None:
+            created_at, candidate_id = after
+            sql += " AND (created_at>? OR (created_at=? AND candidate_id>?))"
+            params.extend((float(created_at), float(created_at), str(candidate_id)))
+        sql += " ORDER BY created_at,candidate_id LIMIT ?"
+        params.append(bounded_limit)
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [self._candidate_envelope(row) for row in rows]
+
     def append_guidance_version(self, guidance_version: str, context_id: str, objective_bucket: str, objective_signature: str, guidance_text: str, metadata: Mapping[str, Any] | None = None) -> str:
         record = {"guidance_text": str(guidance_text), "metadata": dict(metadata or {})}
         with _CONNECTION_LOCK, self._connect() as conn:
@@ -455,14 +664,34 @@ class Store:
     # Active guidance CAS, promotion and rollback --------------------------
     def get_active_guidance(self, context_id: str, objective_bucket: str) -> dict[str, Any] | None:
         with self._connect() as conn:
-            row = conn.execute("""SELECT a.guidance_version,a.revision,a.updated_at,g.objective_signature,g.guidance_text,g.metadata_json
+            row = conn.execute("""SELECT a.guidance_version,
+                       MAX(a.revision,COALESCE(r.revision,a.revision)) AS revision,
+                       a.updated_at,g.objective_signature,g.guidance_text,g.metadata_json
                 FROM active_guidance a JOIN guidance_versions g ON g.guidance_version=a.guidance_version
+                LEFT JOIN active_guidance_revisions r ON r.context_id=a.context_id AND r.objective_bucket=a.objective_bucket
                 WHERE a.context_id=? AND a.objective_bucket=?""", (str(context_id), str(objective_bucket))).fetchone()
         result = _row(row)
         if result:
             result["metadata"] = _decode(result.pop("metadata_json"))
             result["created_at"] = result["updated_at"]
         return result
+
+    def get_active_guidance_revision(self, context_id: str, objective_bucket: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT revision FROM active_guidance_revisions WHERE context_id=? AND objective_bucket=?",
+                (str(context_id), str(objective_bucket)),
+            ).fetchone()
+            if row is not None:
+                return int(row["revision"])
+            active = conn.execute(
+                "SELECT revision FROM active_guidance WHERE context_id=? AND objective_bucket=?",
+                (str(context_id), str(objective_bucket)),
+            ).fetchone()
+        return max(
+            int(row["revision"]) if row is not None else 0,
+            int(active["revision"]) if active is not None else 0,
+        )
 
     def compare_and_swap_active_guidance(self, context_id: str, objective_bucket: str, guidance_version: str, *, expected_revision: int | None, actor_id: str | None = None, detail: Mapping[str, Any] | None = None, action: str = "promote") -> tuple[bool, int]:
         now = _now()
@@ -473,13 +702,21 @@ class Store:
                 conn.execute("ROLLBACK")
                 raise ValueError("guidance version does not belong to the active scope")
             active = conn.execute("SELECT guidance_version,revision FROM active_guidance WHERE context_id=? AND objective_bucket=?", (str(context_id), str(objective_bucket))).fetchone()
-            revision = int(active["revision"]) if active else 0
+            slot = conn.execute("SELECT revision FROM active_guidance_revisions WHERE context_id=? AND objective_bucket=?", (str(context_id), str(objective_bucket))).fetchone()
+            slot_revision = int(slot["revision"]) if slot else 0
+            active_revision = int(active["revision"]) if active else 0
+            revision = max(slot_revision, active_revision)
             previous = active["guidance_version"] if active else None
             if expected_revision is not None and revision != int(expected_revision):
-                conn.execute("ROLLBACK")
+                if revision != slot_revision:
+                    conn.execute("INSERT INTO active_guidance_revisions(context_id,objective_bucket,revision,updated_at) VALUES(?,?,?,?) ON CONFLICT(context_id,objective_bucket) DO UPDATE SET revision=excluded.revision,updated_at=excluded.updated_at", (str(context_id), str(objective_bucket), revision, now))
+                    conn.execute("COMMIT")
+                else:
+                    conn.execute("ROLLBACK")
                 return False, revision
             next_revision = revision + 1
             conn.execute("INSERT INTO active_guidance(context_id,objective_bucket,guidance_version,revision,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(context_id,objective_bucket) DO UPDATE SET guidance_version=excluded.guidance_version,revision=excluded.revision,updated_at=excluded.updated_at", (str(context_id), str(objective_bucket), str(guidance_version), next_revision, now))
+            conn.execute("INSERT INTO active_guidance_revisions(context_id,objective_bucket,revision,updated_at) VALUES(?,?,?,?) ON CONFLICT(context_id,objective_bucket) DO UPDATE SET revision=excluded.revision,updated_at=excluded.updated_at", (str(context_id), str(objective_bucket), next_revision, now))
             conn.execute("INSERT INTO promotion_audits(promotion_id,context_id,objective_bucket,action,previous_guidance_version,guidance_version,expected_revision,resulting_revision,actor_id,detail_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (_digest([context_id, objective_bucket, guidance_version, next_revision, now]), str(context_id), str(objective_bucket), str(action), previous, str(guidance_version), expected_revision, next_revision, actor_id, _json(dict(detail or {})), now))
             conn.execute("COMMIT")
         return True, next_revision
@@ -487,10 +724,54 @@ class Store:
     def rollback_active_guidance(self, context_id: str, objective_bucket: str, guidance_version: str, *, expected_revision: int | None, actor_id: str | None = None, detail: Mapping[str, Any] | None = None) -> tuple[bool, int]:
         return self.compare_and_swap_active_guidance(context_id, objective_bucket, guidance_version, expected_revision=expected_revision, actor_id=actor_id, detail=detail, action="rollback")
 
+    def clear_active_guidance(self, context_id: str, objective_bucket: str, *, expected_revision: int, actor_id: str | None = None, detail: Mapping[str, Any] | None = None) -> tuple[bool, int]:
+        """CAS an active guidance slot back to the implicit Null baseline."""
+        now = _now()
+        with _CONNECTION_LOCK, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            active = conn.execute(
+                "SELECT guidance_version,revision FROM active_guidance WHERE context_id=? AND objective_bucket=?",
+                (str(context_id), str(objective_bucket)),
+            ).fetchone()
+            slot = conn.execute("SELECT revision FROM active_guidance_revisions WHERE context_id=? AND objective_bucket=?", (str(context_id), str(objective_bucket))).fetchone()
+            slot_revision = int(slot["revision"]) if slot else 0
+            active_revision = int(active["revision"]) if active else 0
+            revision = max(slot_revision, active_revision)
+            if active is None or revision != int(expected_revision):
+                if revision != slot_revision:
+                    conn.execute("INSERT INTO active_guidance_revisions(context_id,objective_bucket,revision,updated_at) VALUES(?,?,?,?) ON CONFLICT(context_id,objective_bucket) DO UPDATE SET revision=excluded.revision,updated_at=excluded.updated_at", (str(context_id), str(objective_bucket), revision, now))
+                    conn.execute("COMMIT")
+                else:
+                    conn.execute("ROLLBACK")
+                return False, revision
+            next_revision = revision + 1
+            previous = str(active["guidance_version"])
+            conn.execute(
+                "DELETE FROM active_guidance WHERE context_id=? AND objective_bucket=?",
+                (str(context_id), str(objective_bucket)),
+            )
+            conn.execute(
+                "INSERT INTO active_guidance_revisions(context_id,objective_bucket,revision,updated_at) VALUES(?,?,?,?) ON CONFLICT(context_id,objective_bucket) DO UPDATE SET revision=excluded.revision,updated_at=excluded.updated_at",
+                (str(context_id), str(objective_bucket), next_revision, now),
+            )
+            conn.execute(
+                "INSERT INTO promotion_audits(promotion_id,context_id,objective_bucket,action,previous_guidance_version,guidance_version,expected_revision,resulting_revision,actor_id,detail_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (_digest([context_id, objective_bucket, "null", next_revision, now]), str(context_id), str(objective_bucket), "rollback", previous, "", expected_revision, next_revision, actor_id, _json(dict(detail or {})), now),
+            )
+            conn.execute("COMMIT")
+        return True, next_revision
+
     # Runs/evaluations/replay records --------------------------------------
     def append_run(self, run_id: str, context_id: str, status: str, run: Mapping[str, Any]) -> str:
+        body = dict(run)
         with _CONNECTION_LOCK, self._connect() as conn:
-            conn.execute("INSERT OR IGNORE INTO optimization_runs(run_id,context_id,status,run_json,created_at) VALUES(?,?,?,?,?)", (str(run_id), str(context_id), str(status), _json(dict(run)), _now()))
+            conn.execute(
+                "INSERT OR IGNORE INTO optimization_runs(run_id,context_id,status,run_json,run_digest,created_at) VALUES(?,?,?,?,?,?)",
+                (
+                    str(run_id), str(context_id), str(status), _json(body),
+                    _digest(body), _now(),
+                ),
+            )
         return str(run_id)
 
     def append_evaluation(self, evaluation_id: str, candidate_id: str, evaluation: Mapping[str, Any]) -> str:
@@ -538,11 +819,18 @@ class Store:
             if int(row["attempts"]) >= limit:
                 conn.execute("UPDATE jobs SET status='failed',last_error=?,updated_at=? WHERE job_key=?", ("retry limit exceeded", now, row["job_key"]))
                 conn.execute("COMMIT"); return None
-            previous = conn.execute("SELECT fencing_token FROM job_leases WHERE job_key=?", (row["job_key"],)).fetchone()
-            token = int(previous["fencing_token"]) + 1 if previous else int(row["attempts"]) + 1
+            previous = conn.execute(
+                "SELECT last_token FROM job_fence_counters WHERE job_key=?",
+                (row["job_key"],),
+            ).fetchone()
+            token = int(previous["last_token"]) + 1 if previous else 1
             cursor = conn.execute("UPDATE jobs SET status='running',attempts=attempts+1,last_error=NULL,updated_at=? WHERE job_key=? AND status='pending'", (now, row["job_key"]))
             if not cursor.rowcount:
                 conn.execute("ROLLBACK"); return None
+            conn.execute(
+                "INSERT INTO job_fence_counters(job_key,last_token) VALUES(?,?) ON CONFLICT(job_key) DO UPDATE SET last_token=excluded.last_token",
+                (row["job_key"], token),
+            )
             conn.execute("INSERT INTO job_leases(job_key,owner_id,fencing_token,expires_at,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(job_key) DO UPDATE SET owner_id=excluded.owner_id,fencing_token=excluded.fencing_token,expires_at=excluded.expires_at,updated_at=excluded.updated_at", (row["job_key"], str(worker_id), token, expiry, now))
             claimed = conn.execute("SELECT * FROM jobs WHERE job_key=?", (row["job_key"],)).fetchone()
             conn.execute("COMMIT")
@@ -562,11 +850,51 @@ class Store:
         now = _now()
         with _CONNECTION_LOCK, self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            job = conn.execute(
+                "SELECT context_id,payload_json FROM jobs WHERE job_key=?", (str(job_key),)
+            ).fetchone()
+            if job is None:
+                conn.execute("ROLLBACK")
+                return False
             if worker_id is not None and fencing_token is not None:
                 lease = conn.execute("SELECT 1 FROM job_leases WHERE job_key=? AND owner_id=? AND fencing_token=? AND expires_at>?", (str(job_key), str(worker_id), int(fencing_token), now)).fetchone()
                 if not lease:
                     conn.execute("ROLLBACK"); return False
-            cursor = conn.execute("UPDATE jobs SET status=?,result_json=?,last_error=?,updated_at=? WHERE job_key=?", (str(status), _json(dict(result or {})) if result is not None else None, error, now, str(job_key)))
+            body = dict(result or {})
+            job_payload = _decode(job["payload_json"])
+            trusted_config_digest = job_payload.get("autopilot_config_digest")
+            cursor = conn.execute("UPDATE jobs SET status=?,result_json=?,last_error=?,updated_at=? WHERE job_key=?", (str(status), _json(body) if result is not None else None, error, now, str(job_key)))
+            if (
+                cursor.rowcount
+                and status == "candidate"
+                and body.get("automatic_transition_state") == "pending_coordinator"
+                and type(body.get("autopilot_config_digest")) is str
+                and len(body["autopilot_config_digest"]) == 64
+                and body["autopilot_config_digest"] == trusted_config_digest
+                and type(body.get("candidate_id")) is str
+                and body["candidate_id"]
+                and worker_id is not None
+                and fencing_token is not None
+            ):
+                candidate = conn.execute(
+                    "SELECT context_id,candidate_digest FROM candidates WHERE candidate_id=?",
+                    (body["candidate_id"],),
+                ).fetchone()
+                if (
+                    candidate is None
+                    or candidate["context_id"] != job["context_id"]
+                    or body.get("candidate_digest") != candidate["candidate_digest"]
+                ):
+                    conn.execute("ROLLBACK")
+                    return False
+                conn.execute(
+                    "INSERT OR IGNORE INTO autopilot_candidate_approvals(candidate_id,job_key,fencing_token,candidate_digest,approved_at,config_digest) VALUES(?,?,?,?,?,?)",
+                    (
+                        body["candidate_id"], str(job_key), int(fencing_token),
+                        str(candidate["candidate_digest"]), now,
+                        trusted_config_digest,
+                    ),
+                )
             conn.execute("DELETE FROM job_leases WHERE job_key=?", (str(job_key),))
             conn.execute("COMMIT")
         return bool(cursor.rowcount)

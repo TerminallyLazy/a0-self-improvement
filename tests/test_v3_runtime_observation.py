@@ -28,6 +28,7 @@ from usr.plugins.dspy_rlm.helpers.v3.repository import (
     V3Reader,
     V3Repository,
 )
+from usr.plugins.dspy_rlm.helpers.autopilot_transition_runner import TransitionSelection
 
 
 def _seed(path: Path, *, context_ref: str = "context-01") -> None:
@@ -212,3 +213,74 @@ async def test_disabled_replay_or_missing_hook_identity_is_inert_before_store(
     await loop_hook_module.DspyRlmOptimizationScheduler(agent=ordinary_agent).execute(
         loop_data=SimpleNamespace(iteration=0, params_temporary={})
     )
+
+
+@pytest.mark.asyncio
+async def test_structured_framework_outcome_is_forwarded_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = []
+    params = {"log_item_generating": SimpleNamespace(id="model-log-outcome")}
+    persistent = {
+        loop_hook_module.AUTOPILOT_SELECTION_LOOP_KEY: TransitionSelection(
+            "candidate", "context-01", "reasoning", "guide", "canary",
+            "candidate", "message-01",
+        ),
+    }
+    loop_data = SimpleNamespace(
+        iteration=1,
+        params_temporary=params,
+        params_persistent=persistent,
+        current_tool=SimpleNamespace(),
+        user_message=SimpleNamespace(id="message-01"),
+    )
+    agent = SimpleNamespace(context=_context(), loop_data=loop_data)
+    monkeypatch.setattr(tool_hook_module.config_module, "load_config", lambda _agent: {"enabled": True})
+    monkeypatch.setattr(loop_hook_module.config_module, "load_config", lambda _agent: {"enabled": True})
+
+    class RepositoryContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(loop_hook_module, "open_runtime_repository", lambda **_kwargs: RepositoryContext())
+    monkeypatch.setattr(loop_hook_module, "record_runtime_observation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        loop_hook_module, "record_outcome",
+        lambda selection, **kwargs: captured.append((selection, kwargs)),
+    )
+    monkeypatch.setattr(loop_hook_module.autopilot, "observe_loop_and_schedule", lambda **_kwargs: None)
+    tool_hook = tool_hook_module.DspyRlmToolTrace(agent=agent)
+    await tool_hook.execute(response=Response(message="continue", break_loop=False))
+    assert tool_hook_module.FRAMEWORK_OUTCOME_KEY not in persistent
+    await tool_hook.execute(
+        response=Response(
+            message="failed", break_loop=False,
+            additional={"success": False, "hard_failure": True},
+        )
+    )
+    await loop_hook_module.DspyRlmOptimizationScheduler(agent=agent).execute(
+        loop_data=loop_data
+    )
+    assert captured == []
+    loop_data.iteration = 2
+    loop_data.params_temporary = {
+        "log_item_generating": SimpleNamespace(id="model-log-outcome-2")
+    }
+    await tool_hook.execute(response=Response(message="done", break_loop=True))
+    assert persistent[tool_hook_module.FRAMEWORK_OUTCOME_KEY] is False
+    assert persistent[tool_hook_module.FRAMEWORK_HARD_FAILURE_KEY] is True
+    await loop_hook_module.DspyRlmOptimizationScheduler(agent=agent).execute(
+        loop_data=loop_data
+    )
+    assert len(captured) == 1
+    assert captured[0][1]["success"] is False
+    assert captured[0][1]["hard_failure"] is True
+    await loop_hook_module.DspyRlmOptimizationScheduler(agent=agent).execute(
+        loop_data=loop_data
+    )
+    assert len(captured) == 1
+    assert loop_hook_module.AUTOPILOT_SELECTION_LOOP_KEY not in persistent
+    assert tool_hook_module.TERMINAL_OUTCOME_KEY not in persistent

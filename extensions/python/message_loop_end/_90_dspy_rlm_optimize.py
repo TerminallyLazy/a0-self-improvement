@@ -10,6 +10,15 @@ from helpers.extension import Extension
 from usr.plugins.dspy_rlm.helpers import config as config_module
 from usr.plugins.dspy_rlm.helpers import autopilot
 from usr.plugins.dspy_rlm.helpers import paths
+from usr.plugins.dspy_rlm.helpers.autopilot_transition_runner import (
+    ARTIFACT_LOOP_KEY as AUTOPILOT_ARTIFACT_LOOP_KEY,
+    FRAMEWORK_HARD_FAILURE_KEY,
+    FRAMEWORK_OUTCOME_KEY,
+    SELECTION_LOOP_KEY as AUTOPILOT_SELECTION_LOOP_KEY,
+    TERMINAL_OUTCOME_KEY,
+    TransitionSelection,
+    record_outcome,
+)
 from usr.plugins.dspy_rlm.helpers.v3.canary_runtime import (
     CANARY_ASSIGNMENT_KEY_ENV,
     CANARY_SELECTION_LOOP_KEY,
@@ -60,6 +69,7 @@ class DspyRlmOptimizationScheduler(Extension):
                 return
             iteration = getattr(loop_data, "iteration", None)
             params = getattr(loop_data, "params_temporary", None)
+            persistent = getattr(loop_data, "params_persistent", None)
             if type(iteration) is not int or iteration < 0 or type(params) is not dict:
                 return
             occurrence_ref = _log_ref(params.get("log_item_generating"))
@@ -108,6 +118,30 @@ class DspyRlmOptimizationScheduler(Extension):
                             pass
                 if not recorded:
                     record_runtime_observation(repository, request)
+            transition = (
+                persistent.get(AUTOPILOT_SELECTION_LOOP_KEY)
+                if type(persistent) is dict
+                else None
+            )
+            terminal_observed = (
+                type(persistent) is dict
+                and persistent.get(TERMINAL_OUTCOME_KEY) is True
+            )
+            if terminal_observed and type(transition) is TransitionSelection:
+                record_outcome(
+                    transition,
+                    success=persistent.get(FRAMEWORK_OUTCOME_KEY),
+                    config=cfg,
+                    hard_failure=persistent.get(FRAMEWORK_HARD_FAILURE_KEY) is True,
+                )
+                for key in (
+                    AUTOPILOT_SELECTION_LOOP_KEY,
+                    AUTOPILOT_ARTIFACT_LOOP_KEY,
+                    FRAMEWORK_OUTCOME_KEY,
+                    FRAMEWORK_HARD_FAILURE_KEY,
+                    TERMINAL_OUTCOME_KEY,
+                ):
+                    persistent.pop(key, None)
             message_ref = getattr(getattr(loop_data, "user_message", None), "id", None)
             if type(message_ref) is str and message_ref:
                 autopilot.observe_loop_and_schedule(

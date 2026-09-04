@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .activation_transition import ACTIVATION_TRANSITION_REGISTRY
+from .autopilot_publication import AUTOPILOT_PUBLICATION_REGISTRY
 from .calibration_authority import CALIBRATION_AUTHORITY_REGISTRY
 from .canary import CANARY_REGISTRY
 from .canary_command_adapter import CANARY_COMMAND_REGISTRY
@@ -29,6 +30,7 @@ from .work_authority import WORK_AUTHORITY_REGISTRY
 
 V3_REGISTRY = merge_schema_registries(
     MIGRATION_REGISTRY,
+    AUTOPILOT_PUBLICATION_REGISTRY,
     CANDIDATE_PUBLICATION_REGISTRY,
     REPLAY_REGISTRY,
     REPLAY_REPOSITORY_REGISTRY,

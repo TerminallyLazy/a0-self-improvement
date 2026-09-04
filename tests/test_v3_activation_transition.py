@@ -186,7 +186,7 @@ class Seeded:
     request: ActivationRequest
 
 
-def _seed(tmp_path, *, diagnostic: bool = False) -> Seeded:
+def _seed(tmp_path, *, diagnostic: bool = False, automatic: bool = False) -> Seeded:
     repository = V3Repository.create(tmp_path / "activation.sqlite3", registry=TEST_REGISTRY)
     guidance = null_guidance_artifact()
     prompt = null_prompt_patch_artifact()
@@ -416,7 +416,7 @@ def _seed(tmp_path, *, diagnostic: bool = False) -> Seeded:
         record_id="canary.policy",
         context_ref=CONTEXT,
         policy_revision=1,
-        activation_mode="manual_only",
+        activation_mode="auto_after_canary" if automatic else "manual_only",
         key_epoch=KEY,
     )
     trial_plan = canary_plan(
@@ -447,7 +447,7 @@ def _seed(tmp_path, *, diagnostic: bool = False) -> Seeded:
         policy=policy,
         canary_plan_record=trial_plan,
         monitor_plan_record=monitoring,
-        activation_authorities=("manual",),
+        activation_authorities=("automatic", "manual") if automatic else ("manual",),
         soft_rollback_authorized=True,
         key_epoch=KEY,
     )
@@ -498,7 +498,7 @@ def _seed(tmp_path, *, diagnostic: bool = False) -> Seeded:
             environment_ref="env.test",
             expected_scope_revision=0,
             observed_scope_revision=0,
-            requested_authority="manual",
+            requested_authority="automatic" if automatic else "manual",
         )
     else:
         # Deliberately construct the claimed identity: the coordinator must still reject
@@ -611,16 +611,18 @@ def _seed(tmp_path, *, diagnostic: bool = False) -> Seeded:
     )
 
 
-def _grant(command: TransitionCommand, action: str):
+def _grant(command: TransitionCommand, action: str, *, automatic: bool = False):
     verified = VerifiedGrant(
         grant_id=command.authority_grant_id,
-        authority_class="operator_authority_grant",
+        authority_class=(
+            "automatic_transition_grant" if automatic else "operator_authority_grant"
+        ),
         issuer_id=command.issuer_ref,
         key_epoch=1,
         subject_ref=command.subject_ref,
         context_ref=command.context_ref,
         action=action,
-        purpose="operator_mutation",
+        purpose="automatic_promotion" if automatic else "operator_mutation",
         target_ref=command.target_ref,
         target_revision=command.expected_scope_revision,
         issued_at=NOW - timedelta(minutes=1),
@@ -629,6 +631,27 @@ def _grant(command: TransitionCommand, action: str):
         session_nonce="session.local",
     )
     return lambda _transaction: verified
+
+
+def test_automatic_activation_requires_exact_automatic_transition_authority(tmp_path) -> None:
+    seeded = _seed(tmp_path, automatic=True)
+
+    with pytest.raises(ActivationTransitionDenied, match="authority_grant_mismatch"):
+        activate_candidate(
+            seeded.repository,
+            request=seeded.request,
+            revalidate_grant=_grant(seeded.command, "activate"),
+        )
+
+    result = activate_candidate(
+        seeded.repository,
+        request=seeded.request,
+        revalidate_grant=_grant(seeded.command, "activate", automatic=True),
+    )
+
+    assert result.scope.scope_revision == 1
+    assert result.receipt.payload["authority_class"] == "automatic_transition_grant"
+    assert result.receipt.payload["authority_purpose"] == "automatic_promotion"
 
 
 def test_activation_commits_exact_scope_slots_receipt_and_lost_ack_replay(tmp_path) -> None:

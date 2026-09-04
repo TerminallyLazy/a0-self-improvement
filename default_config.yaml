@@ -13,6 +13,9 @@ status_refresh_seconds: 8
 # operator choices. Conversation bodies are never an automation input.
 automation:
   mode: observe
+  # Written by the Settings UI only when Autopilot is explicitly selected.
+  # Older saved Autopilot settings therefore remain non-authoritative.
+  authority_consent_revision: 0
   scope: project
   risk_profile: balanced
   live_refresh_seconds: 2

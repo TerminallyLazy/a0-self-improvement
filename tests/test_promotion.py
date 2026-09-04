@@ -42,6 +42,105 @@ def test_coordinator_refuses_unevaluated_first_promotion(coordinator: PromotionC
     assert count == 0
 
 
+def test_null_baseline_evidence_chain_is_complete_and_digest_verified(
+    coordinator: PromotionCoordinator,
+) -> None:
+    ids = {
+        "run_id": "run-1",
+        "candidate_id": "candidate-1",
+        "evaluation_id": "evaluation-1",
+        "replay_audit_id": "audit-1",
+        "replay_manifest_id": "replay-manifest-1",
+        "training_manifest_id": "training-manifest-1",
+    }
+    metadata = {"persistence": ids}
+    version = coordinator.stage(
+        "ctx-1", "reasoning", "Candidate", guidance_version="guide-1",
+        metadata=metadata,
+    )
+    replay_manifest = {
+        "manifest_id": ids["replay_manifest_id"], "digest": "a" * 64,
+    }
+    coordinator.store.append_manifest(
+        ids["training_manifest_id"], "ctx-1", "optimization_training", [],
+        {"objective_bucket": "reasoning"},
+    )
+    coordinator.store.append_manifest(
+        ids["replay_manifest_id"], "ctx-1", "paired_replay", [], replay_manifest,
+    )
+    coordinator.store.append_run(
+        ids["run_id"], "ctx-1", "candidate",
+        {
+            **ids, "guidance_version": version,
+            "objective_bucket": "reasoning",
+        },
+    )
+    candidate = {
+        "candidate_id": ids["candidate_id"], "run_id": ids["run_id"],
+        "guidance_version": version, "guidance_metadata": metadata,
+        "validation": {"passed": True},
+        "replay_audit_id": ids["replay_audit_id"],
+        "replay_manifest_id": ids["replay_manifest_id"],
+    }
+    coordinator.store.append_candidate(
+        ids["candidate_id"], "ctx-1", "reasoning", candidate,
+        run_id=ids["run_id"], guidance_version=version,
+    )
+    coordinator.store.append_evaluation(
+        ids["evaluation_id"], ids["candidate_id"],
+        {
+            "run_id": ids["run_id"], "validation": {"passed": True},
+            "replay_manifest_id": ids["replay_manifest_id"],
+        },
+    )
+    coordinator.store.append_replay_audit(
+        ids["replay_audit_id"], ids["candidate_id"],
+        {
+            "decision": "review_only", "reason": "missing_baseline",
+            "promotion_ready": False, "passed": False,
+            "manifest_id": ids["replay_manifest_id"],
+            "manifest_digest": replay_manifest["digest"],
+            "provenance": {"candidate_guidance_version": version},
+        },
+        manifest_id=ids["replay_manifest_id"],
+    )
+    evidence, reason = coordinator.verified_evidence_chain(
+        "ctx-1", "reasoning", version, None, allow_missing_baseline=True
+    )
+    assert evidence is not None and reason == ""
+    evidence, reason = coordinator.verified_evidence_chain(
+        "ctx-1", "reasoning", version, None, allow_missing_baseline=True,
+        expected_candidate_id="candidate-other",
+    )
+    assert evidence is None and reason == "promotion_evidence_linkage_mismatch"
+    with coordinator.store._connect() as connection:
+        original_run = connection.execute(
+            "SELECT run_json FROM optimization_runs WHERE run_id=?", (ids["run_id"],)
+        ).fetchone()["run_json"]
+        connection.execute(
+            "UPDATE optimization_runs SET run_json='{\"tampered\":true}' WHERE run_id=?",
+            (ids["run_id"],),
+        )
+    evidence, reason = coordinator.verified_evidence_chain(
+        "ctx-1", "reasoning", version, None, allow_missing_baseline=True
+    )
+    assert evidence is None and reason == "persisted_evidence_digest_mismatch"
+    with coordinator.store._connect() as connection:
+        connection.execute(
+            "UPDATE optimization_runs SET run_json=? WHERE run_id=?",
+            (original_run, ids["run_id"]),
+        )
+    with coordinator.store._connect() as connection:
+        connection.execute(
+            "UPDATE evaluations SET evaluation_json='{\"tampered\":true}' WHERE evaluation_id=?",
+            (ids["evaluation_id"],),
+        )
+    evidence, reason = coordinator.verified_evidence_chain(
+        "ctx-1", "reasoning", version, None, allow_missing_baseline=True
+    )
+    assert evidence is None and reason == "persisted_evidence_digest_mismatch"
+
+
 def test_rollback_is_cas_protected_and_keeps_audit_history(coordinator: PromotionCoordinator) -> None:
     v1 = coordinator.stage("ctx-1", "reasoning", "Known-good")
     v2 = coordinator.stage("ctx-1", "reasoning", "Regression")

@@ -37,8 +37,25 @@ def _run_without_promotion(context_id: str, cfg: dict[str, Any], force: bool) ->
     no active-pointer write path.  Keeping this call direct avoids the historical
     monkey-patch replay path, which could silently drop audit persistence.
     """
-    result = optimizer.run_optimization_sync(context_id, cfg, force=force)
+    result = optimizer.run_optimization_sync(
+        context_id, cfg, force=force, manage_context_state=False
+    )
     return result if isinstance(result, dict) else {"status": "error", "error": "optimizer returned a non-object result"}
+
+
+def _sync_context_job_status(
+    store: state_module.StateStore, queue: LocalMultiprocessQueue,
+    *, context_id: str, job_key: str,
+) -> None:
+    current = queue.get(job_key) or {}
+    status = str(current.get("status") or "unknown")
+    store.set_context_state(context_id, {
+        "optimization_running": status in {"pending", "running"},
+        "optimization_status": status,
+        "optimization_status_message": str(
+            current.get("last_error") or status
+        ),
+    })
 
 def _execute_job(queue: LocalMultiprocessQueue, job: dict[str, Any], cfg: dict[str, Any], settings: dict[str, int]) -> tuple[dict[str, Any], str]:
     lease = job["lease"]
@@ -72,6 +89,9 @@ def _execute_job(queue: LocalMultiprocessQueue, job: dict[str, Any], cfg: dict[s
         "objective_signature": str(job.get("objective_signature") or ""),
         "scheduler_mode": "local_multiprocess",
     })
+    from ..v3.autopilot_control_plane import effective_config_digest
+
+    result["autopilot_config_digest"] = effective_config_digest(run_cfg)
 
     # The optimizer has already staged a complete immutable artifact set in the
     # authoritative store. Validate the exact serialized artifact again at the
@@ -118,16 +138,22 @@ def _execute_job(queue: LocalMultiprocessQueue, job: dict[str, Any], cfg: dict[s
         queue.store.append_run(identifiers["run_id"], context_id, "candidate", {
             "run_id": identifiers["run_id"], "candidate_id": identifiers["candidate_id"],
             "guidance_version": version, "objective_bucket": artifact.objective_bucket,
-            "validation": result.get("validation", {}), "replay_manifest_id": identifiers["replay_manifest_id"],
+            "validation": result.get("validation", {}),
+            "training_manifest_id": identifiers["training_manifest_id"],
+            "replay_manifest_id": identifiers["replay_manifest_id"],
             "replay_audit_id": identifiers["replay_audit_id"],
         })
-        queue.store.append_candidate(identifiers["candidate_id"], context_id, artifact.objective_bucket, {
+        candidate_body = {
             "candidate_id": identifiers["candidate_id"], "run_id": identifiers["run_id"],
             "guidance_version": version, "guidance_artifact": artifact.to_mapping(),
             "guidance_metadata": metadata, "validation": result.get("validation", {}),
             "matrix_scores": result.get("matrix_scores", {}), "replay_manifest_id": identifiers["replay_manifest_id"],
             "replay_audit_id": identifiers["replay_audit_id"],
-        }, run_id=identifiers["run_id"], guidance_version=version)
+        }
+        queue.store.append_candidate(
+            identifiers["candidate_id"], context_id, artifact.objective_bucket,
+            candidate_body, run_id=identifiers["run_id"], guidance_version=version,
+        )
         queue.store.append_evaluation(identifiers["evaluation_id"], identifiers["candidate_id"], {
             "run_id": identifiers["run_id"], "validation": result.get("validation", {}),
             "matrix_scores": result.get("matrix_scores", {}), "replay_manifest_id": identifiers["replay_manifest_id"],
@@ -137,6 +163,22 @@ def _execute_job(queue: LocalMultiprocessQueue, job: dict[str, Any], cfg: dict[s
             result.get("replay_audit", {}) if isinstance(result.get("replay_audit"), dict) else {},
             manifest_id=identifiers["replay_manifest_id"],
         )
+        persisted_candidate = queue.store.get_candidate(
+            identifiers["candidate_id"], context_id=context_id
+        )
+        if (
+            not isinstance(persisted_candidate, dict)
+            or persisted_candidate.get("context_id") != context_id
+            or persisted_candidate.get("objective_bucket") != artifact.objective_bucket
+            or persisted_candidate.get("guidance_version") != version
+            or persisted_candidate.get("candidate") != candidate_body
+        ):
+            result.update({
+                "status": "candidate_rejected",
+                "promotion_decision": "reject",
+                "reason": "candidate_persistence_missing",
+            })
+            return result, "rejected"
         # A failed deterministic gate is still a useful immutable candidate
         # record, but it must remain a rejected queue outcome rather than look
         # promotion-ready to a coordinator.
@@ -146,6 +188,7 @@ def _execute_job(queue: LocalMultiprocessQueue, job: dict[str, Any], cfg: dict[s
             "promotion_decision": str(result.get("promotion_decision") or "candidate_staged"),
             "guidance_artifact": artifact.to_mapping(),
             "candidate_metadata": metadata,
+            "candidate_digest": str(persisted_candidate["candidate_digest"]),
         })
         return result, "rejected" if rejected else "candidate"
     if str(result.get("status")) in {"rejected", "candidate_rejected"}:
@@ -178,20 +221,54 @@ def worker_loop(plugin_dir: str, worker_id: str, max_iterations: int | None = No
         try:
             result, terminal = _execute_job(queue, job, cfg, settings)
             if terminal == "lost_lease":
+                _sync_context_job_status(
+                    store, queue,
+                    context_id=str(job.get("context_id") or ""),
+                    job_key=lease.job_key,
+                )
                 continue
             if terminal == "failed":
-                queue.fail(lease, str(result.get("error") or result.get("reason") or "worker failure"), max_retries=settings["retries"])
-            elif terminal != "cancelled":
-                queue.complete(lease, result, status=terminal)
+                applied, failure_status = queue.fail(
+                    lease,
+                    str(result.get("error") or result.get("reason") or "worker failure"),
+                    max_retries=settings["retries"],
+                )
+                if applied:
+                    store.set_context_state(str(job.get("context_id") or ""), {
+                        "optimization_running": failure_status == "pending",
+                        "optimization_status": failure_status,
+                        "optimization_status_message": str(
+                            result.get("error") or result.get("reason") or failure_status
+                        ),
+                    })
+            elif terminal == "cancelled":
+                current = queue.get(lease.job_key) or {}
+                if current.get("status") == "cancelled":
+                    store.set_context_state(str(job.get("context_id") or ""), {
+                        "optimization_running": False,
+                        "optimization_status": "cancelled",
+                        "optimization_status_message": str(
+                            current.get("last_error") or "cancelled"
+                        ),
+                    })
+            else:
+                completed = queue.complete(lease, result, status=terminal)
                 # The optimizer is a candidate generator in worker mode; reflect
                 # its fenced terminal queue state rather than its legacy direct
                 # promotion-oriented status in the context cache.
-                store.set_context_state(str(job.get("context_id") or ""), {
-                    "optimization_running": False,
-                    "optimization_status": terminal,
-                    "optimization_status_message": "candidate staged; coordinator promotion required" if terminal == "candidate" else str(result.get("reason") or terminal),
-                    "optimization_result": result,
-                })
+                if completed:
+                    store.set_context_state(str(job.get("context_id") or ""), {
+                        "optimization_running": False,
+                        "optimization_status": terminal,
+                        "optimization_status_message": "candidate staged; coordinator promotion required" if terminal == "candidate" else str(result.get("reason") or terminal),
+                        "optimization_result": result,
+                    })
+                else:
+                    _sync_context_job_status(
+                        store, queue,
+                        context_id=str(job.get("context_id") or ""),
+                        job_key=lease.job_key,
+                    )
         except BaseException as error:
             queue.fail(lease, error, max_retries=settings["retries"])
         finally:

@@ -16,6 +16,12 @@ from usr.plugins.dspy_rlm.helpers.v3.candidate_publication import (
 from usr.plugins.dspy_rlm.helpers.v3.canary import (
     CANARY_CONCLUSION_SCHEMA_ID,
     CANARY_REGISTRY,
+    BucketCalibration,
+    Rational,
+    activation_policy,
+    canary_plan,
+    monitor_plan,
+    policy_calibration,
 )
 from usr.plugins.dspy_rlm.helpers.v3.operator_projection import (
     Axis,
@@ -24,6 +30,7 @@ from usr.plugins.dspy_rlm.helpers.v3.operator_projection import (
     project_candidates,
     project_overview,
     project_privacy_migration,
+    project_policy_capabilities,
 )
 from usr.plugins.dspy_rlm.helpers.v3.operator_repository import (
     ObservedRecord,
@@ -313,3 +320,59 @@ def test_safe_store_reader_enumerates_verified_context_facts_without_writes(
         assert project_overview(OperatorRepositoryAdapter(safe), _CONTEXT)["activation"][
             "profile_ref"
         ] == profile.record_id
+
+
+def test_policy_capabilities_derive_standing_automatic_authority_from_calibration() -> None:
+    policy = activation_policy(
+        record_id="policy:auto",
+        context_ref=_CONTEXT,
+        policy_revision=3,
+        activation_mode="auto_after_canary",
+        key_epoch="test-v1",
+    )
+    trial_plan = canary_plan(
+        record_id="canary-plan:auto",
+        context_ref=_CONTEXT,
+        horizon_exposures=20,
+        expiry_seconds=3600,
+        candidate_allocation=Rational(1, 10),
+        assignment_key_commitment="1" * 64,
+        hard_veto_failure_limit=0,
+        buckets=(
+            BucketCalibration("reasoning", 10, Rational(1, 20), Rational(0, 1)),
+        ),
+        key_epoch="test-v1",
+    )
+    monitoring = monitor_plan(
+        record_id="monitor-plan:auto",
+        context_ref=_CONTEXT,
+        horizon_exposures=40,
+        look_interval_exposures=10,
+        ordinary_regression_boundary=Rational(1, 20),
+        hard_veto_failure_limit=0,
+        key_epoch="test-v1",
+    )
+    calibration = policy_calibration(
+        record_id="calibration:auto",
+        context_ref=_CONTEXT,
+        status="approved",
+        environment_ref="agent-zero:local-production",
+        policy=policy,
+        canary_plan_record=trial_plan,
+        monitor_plan_record=monitoring,
+        activation_authorities=("automatic", "manual"),
+        soft_rollback_authorized=True,
+        key_epoch="test-v1",
+    )
+    facts = _Facts(
+        records=tuple(
+            ObservedRecord(record, _NOW)
+            for record in (policy, trial_plan, monitoring, calibration)
+        )
+    )
+
+    view = project_policy_capabilities(OperatorRepositoryAdapter(facts), _CONTEXT)
+
+    assert view["policy"]["calibration_state"] == "approved"
+    assert view["policy"]["activation_mode"] == "auto_after_canary"
+    assert view["policy"]["automatic_authority_state"] == "authorized"

@@ -28,6 +28,11 @@ from .operator_projection import (
     ReceiptsAuditSnapshot,
     SlotSummary,
 )
+from .autopilot_publication import (
+    AUTOPILOT_AUTHORITY_CEILING,
+    AUTOPILOT_REVIEW_CANDIDATE_SCHEMA_ID,
+    AUTOPILOT_REVIEW_RECEIPT_KIND,
+)
 from .repository import (
     ActivationScope,
     DomainEvent,
@@ -40,6 +45,7 @@ from .schemas import TypedRecord
 
 _PUBLIC_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _RECEIPT_CATEGORIES = {
+    AUTOPILOT_REVIEW_RECEIPT_KIND: "candidate",
     "activation_receipt": "activation",
     "activation_transition_receipt": "activation",
     "operator_mutation_receipt": "mutation",
@@ -141,6 +147,19 @@ class SafeStoreOperatorReader:
             ObservedRecord(item.record, item.created_at)
             for item in self._reader.list_records_for_context(
                 context_ref, maximum=maximum
+            )
+        )
+
+    def list_records_by_kinds(
+        self, context_ref: str, record_kinds: tuple[str, ...]
+    ) -> tuple[ObservedRecord, ...]:
+        maximum = self._reader.count_records_for_context_kinds(
+            context_ref, record_kinds
+        )
+        return tuple(
+            ObservedRecord(item.record, item.created_at)
+            for item in self._reader.list_records_for_context_kinds(
+                context_ref, record_kinds, maximum=maximum
             )
         )
 
@@ -332,24 +351,35 @@ class OperatorRepositoryAdapter:
     ) -> CandidateSummary:
         record = item.record
         payload = record.payload
+        autopilot_review = record.schema_id == AUTOPILOT_REVIEW_CANDIDATE_SCHEMA_ID
         candidate_ref = _public_ref(record.record_id) or "candidate:unavailable"
         artifact_ref = _public_ref(payload.get("artifact_id")) or "artifact:unavailable"
-        dispositions = [
-            fact
-            for fact in observed
-            if fact.record.record_kind == "activation_disposition"
-            and fact.record.payload.get("candidate_id") == record.record_id
-        ]
-        disposition_fact = max(dispositions, key=lambda fact: fact.observed_at) if dispositions else None
-        disposition = (
-            disposition_fact.record.payload.get("disposition", "none")
-            if disposition_fact is not None
-            else "none"
-        )
+        disposition_fact = None
+        if autopilot_review:
+            disposition = payload.get("review_disposition", "review_only")
+        else:
+            dispositions = [
+                fact
+                for fact in observed
+                if fact.record.record_kind == "activation_disposition"
+                and fact.record.payload.get("candidate_id") == record.record_id
+            ]
+            disposition_fact = (
+                max(dispositions, key=lambda fact: fact.observed_at)
+                if dispositions
+                else None
+            )
+            disposition = (
+                disposition_fact.record.payload.get("disposition", "none")
+                if disposition_fact is not None
+                else "none"
+            )
         if disposition not in {"promotion_ready", "review_only", "rejected"}:
             disposition = "none"
         disposition_axis = (
-            _axis(disposition, disposition_fact.observed_at)
+            _axis(disposition, item.observed_at, f"autopilot_{disposition}")
+            if autopilot_review
+            else _axis(disposition, disposition_fact.observed_at)
             if disposition_fact is not None
             else _not_observed("disposition_not_observed")
         )
@@ -364,7 +394,7 @@ class OperatorRepositoryAdapter:
             if lineage_current
             else _axis("stale", item.observed_at, "activation_scope_changed")
         )
-        conclusions = [
+        conclusions = [] if autopilot_review else [
             fact
             for fact in observed
             if fact.record.record_kind == "canary_conclusion"
@@ -373,8 +403,12 @@ class OperatorRepositoryAdapter:
         conclusion = max(conclusions, key=lambda fact: fact.observed_at) if conclusions else None
         canary = self._canary(conclusion)
         diagnostic = canary.canary_kind == "diagnostic"
-        allowed = self._candidate_actions(disposition, lineage_current, canary)
-        monitor_records = [
+        allowed = (
+            (ActionSummary("activate", "blocked", (f"autopilot_{disposition}",)),)
+            if autopilot_review
+            else self._candidate_actions(disposition, lineage_current, canary)
+        )
+        monitor_records = [] if autopilot_review else [
             fact
             for fact in observed
             if fact.record.record_kind == "post_promotion_monitor"
@@ -394,7 +428,7 @@ class OperatorRepositoryAdapter:
             change_kind="structured_guidance",
             target_slot="structured_guidance",
             engine_semantic_id=_public_ref(payload.get("engine_semantic_id")) or "unavailable",
-            authority_ceiling="none",
+            authority_ceiling=(AUTOPILOT_AUTHORITY_CEILING if autopilot_review else "none"),
             benefit_claim=_public_ref(claim_ref) or "not_assessed",
             benefit_state="declared" if claim_ref is not None else "not_assessed",
             # The source and public projection use different risk vocabularies.
@@ -413,8 +447,16 @@ class OperatorRepositoryAdapter:
             rule_catalog_ids=(),
             evidence_buckets=(),
             canary=canary,
-            diagnostic_labels=("diagnostic", "non_authoritative") if diagnostic else (),
-            diagnostic_reason_codes=("no_promotion_authority",) if diagnostic else (),
+            diagnostic_labels=(
+                ("autopilot_candidate", "non_authoritative", disposition)
+                if autopilot_review
+                else ("diagnostic", "non_authoritative") if diagnostic else ()
+            ),
+            diagnostic_reason_codes=(
+                (f"autopilot_{disposition}", "no_promotion_authority")
+                if autopilot_review
+                else ("no_promotion_authority",) if diagnostic else ()
+            ),
             allowed_actions=allowed,
         )
 
@@ -532,20 +574,68 @@ class OperatorRepositoryAdapter:
     def read_policy_capabilities(self, context_ref: str) -> PolicyCapabilitiesSnapshot:
         observed = self._records(context_ref)
         policies = [item for item in observed if item.record.record_kind == "activation_policy"]
-        policy = policies[0] if len(policies) == 1 else None
+        revisions = {
+            item.record.payload.get("policy_revision")
+            for item in policies
+            if type(item.record.payload.get("policy_revision")) is int
+        }
+        latest_revision = max(revisions) if revisions else None
+        latest = [
+            item
+            for item in policies
+            if item.record.payload.get("policy_revision") == latest_revision
+        ]
+        policy = latest[0] if len(latest) == 1 else None
         calibration_state = "unavailable"
         activation_mode = "unavailable"
+        automatic_authority_state = "unavailable"
         policy_ref = None
         policy_axis = _unavailable("policy_authority_ambiguous" if policies else "policy_not_observed")
         if policy is not None:
             payload = policy.record.payload
             policy_ref = _public_ref(policy.record.record_id)
-            calibration_state = payload.get("calibration_state", "uncalibrated")
-            if calibration_state not in {"approved", "uncalibrated", "withdrawn", "expired"}:
-                calibration_state = "unavailable"
             activation_mode = payload.get("activation_mode", "unavailable")
             if activation_mode not in {"manual_only", "auto_after_canary"}:
                 activation_mode = "unavailable"
+            matching_calibrations = [
+                item
+                for item in observed
+                if item.record.record_kind == "policy_calibration"
+                and item.record.payload.get("policy_id") == policy.record.record_id
+                and item.record.payload.get("policy_digest")
+                == policy.record.content_digest
+                and item.record.payload.get("policy_revision") == latest_revision
+            ]
+            if not matching_calibrations:
+                calibration_state = "uncalibrated"
+                automatic_authority_state = "not_authorized"
+            elif len(matching_calibrations) == 1:
+                calibration = matching_calibrations[0].record
+                withdrawals = [
+                    item
+                    for item in observed
+                    if item.record.record_kind
+                    == "policy_calibration_mutation_receipt"
+                    and item.record.payload.get("operation") == "withdraw"
+                    and item.record.payload.get("calibration")
+                    == {
+                        "record_id": calibration.record_id,
+                        "digest": calibration.content_digest,
+                    }
+                ]
+                calibration_state = "withdrawn" if withdrawals else "approved"
+                automatic_authority_state = (
+                    "authorized"
+                    if calibration_state == "approved"
+                    and activation_mode == "auto_after_canary"
+                    and "automatic"
+                    in calibration.payload.get("activation_authorities", ())
+                    and calibration.payload.get("soft_rollback_authorized") is True
+                    else "not_authorized"
+                )
+            else:
+                calibration_state = "unavailable"
+                automatic_authority_state = "unavailable"
             policy_axis = _axis("active", policy.observed_at)
         capability_records = [
             item
@@ -577,7 +667,7 @@ class OperatorRepositoryAdapter:
             policy_ref,
             calibration_state,
             activation_mode,
-            "not_authorized" if policy is not None else "unavailable",
+            automatic_authority_state,
             capability_axis,
             capabilities,
             None,
@@ -594,7 +684,7 @@ class OperatorRepositoryAdapter:
         by_id = {item.record.record_id: item.record for item in observed}
         events = self._facts.list_domain_events(context_ref)
         receipts: list[ReceiptSummary] = []
-        for item in events:
+        for display_sequence, item in enumerate(events):
             record = (
                 None
                 if item.event.payload_record_id is None
@@ -613,7 +703,7 @@ class OperatorRepositoryAdapter:
                 continue
             receipts.append(
                 ReceiptSummary(
-                    sequence=item.event.sequence,
+                    sequence=display_sequence,
                     receipt_ref=receipt_ref,
                     category=category,
                     action=action,
@@ -621,10 +711,6 @@ class OperatorRepositoryAdapter:
                     observed_at=item.observed_at,
                     related_receipt_refs=(),
                 )
-            )
-        if len({item.sequence for item in receipts}) != len(receipts):
-            return ReceiptsAuditSnapshot(
-                _unavailable("global_receipt_sequence_ambiguous"), (), ()
             )
         counts = tuple(
             (category, sum(item.category == category for item in receipts))
