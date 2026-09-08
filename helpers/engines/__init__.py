@@ -14,13 +14,14 @@ from ..guidance import GuidanceArtifact
 
 @dataclass(frozen=True)
 class EngineBudget:
-    """Hard, local limits for a single candidate-engine invocation."""
+    """Search limits and post-compile acceptance thresholds for one engine."""
 
     max_examples: int = 32
     max_compile_seconds: float = 60.0
     max_cost_usd: float = 0.0
     max_steps: int = 3
     num_threads: int = 1
+    max_metric_calls: int = 24
 
     def __post_init__(self) -> None:
         if not isinstance(self.max_examples, int) or isinstance(self.max_examples, bool) or self.max_examples < 1:
@@ -33,6 +34,8 @@ class EngineBudget:
             raise ValueError("max_steps must be a positive integer")
         if not isinstance(self.num_threads, int) or isinstance(self.num_threads, bool) or self.num_threads < 1:
             raise ValueError("num_threads must be a positive integer")
+        if type(self.max_metric_calls) is not int or not 1 <= self.max_metric_calls <= 1000:
+            raise ValueError("max_metric_calls must be an integer between 1 and 1000")
 
     def to_mapping(self) -> dict[str, Any]:
         return {
@@ -41,6 +44,7 @@ class EngineBudget:
             "max_cost_usd": float(self.max_cost_usd),
             "max_steps": self.max_steps,
             "num_threads": self.num_threads,
+            "max_metric_calls": self.max_metric_calls,
         }
 
 

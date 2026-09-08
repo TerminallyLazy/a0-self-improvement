@@ -245,7 +245,7 @@ def test_live_status_separates_generation_from_promotion_authority(monkeypatch) 
     monkeypatch.setattr(
         autopilot_status.autopilot,
         "optimization_progress",
-        lambda _context, _cfg: autopilot.OptimizationProgress(
+        lambda _context, _cfg, **_kwargs: autopilot.OptimizationProgress(
             "collecting", 8, 8, 12, 4, 0
         ),
     )

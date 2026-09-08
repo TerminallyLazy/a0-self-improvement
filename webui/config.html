@@ -422,6 +422,7 @@
             max_samples_per_objective: 40,
             cooldown_hours: 6,
             ge_pa_steps: 3,
+            max_metric_calls: 24,
             ge_pa_threads: 2,
             max_active_objectives_per_context: 8,
             objective_signature_lookback: 25,
@@ -573,6 +574,7 @@
         traceCapture.max_events_per_context = config.optimization_trace_window;
         config.optimization_max_active_objectives_per_context = toInt(config.optimization_max_active_objectives_per_context, optimization.max_active_objectives_per_context || 8, 1, 64);
         optimization.max_active_objectives_per_context = config.optimization_max_active_objectives_per_context;
+        optimization.max_metric_calls = toInt(optimization.max_metric_calls, 24, 1, 1000);
         optimization.max_samples_per_objective = toInt(optimization.max_samples_per_objective, 40, 1, 200);
         optimization.retain_samples_per_context = toInt(optimization.retain_samples_per_context, 3000, 10, 200000);
         optimization.max_sample_size_chars = toInt(optimization.max_sample_size_chars, 2400, 64, 100000);
@@ -1067,6 +1069,7 @@
 
             <div class="dspy-card">
               <h2>GEPA optimizer</h2>
+              <p>Duration and reported cost are checked after compilation. They do not cancel in-flight model calls; unavailable cost data is not proof of zero spending.</p>
               <div class="dspy-field">
                 <label>
                   <span>Enable GEPA</span>
@@ -1087,13 +1090,20 @@
               </div>
               <div class="dspy-field inline">
                 <label>
-                  <span>Compile timeout (sec)</span>
+                  <span>GEPA metric evaluation budget</span>
+                  <input type="number" min="1" max="1000" step="1" x-model.number="config.optimization.max_metric_calls" />
+                </label>
+                <p>Per compile, including each prompt component separately. GEPA checks its budget between batches; reflection and post-compile validation add calls. This is not a token or dollar ceiling.</p>
+              </div>
+              <div class="dspy-field inline">
+                <label>
+                  <span>Compile duration acceptance limit (sec)</span>
                   <input type="number" min="5" max="3600" step="5" x-model.number="config.optimization.max_compile_seconds" />
                 </label>
               </div>
               <div class="dspy-field inline">
                 <label>
-                  <span>Maximum cost (USD)</span>
+                  <span>Reported cost acceptance limit (USD)</span>
                   <input type="number" min="0" max="1000" step="0.25" x-model.number="config.optimization.max_cost_usd" />
                 </label>
               </div>

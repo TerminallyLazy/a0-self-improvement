@@ -198,6 +198,7 @@ def optimization_progress(
     config: Mapping[str, Any],
     *,
     now: datetime | None = None,
+    readonly: bool = False,
 ) -> OptimizationProgress:
     """Project the next per-chat scheduling threshold without mutation."""
 
@@ -209,9 +210,16 @@ def optimization_progress(
     except (TypeError, ValueError):
         return OptimizationProgress("unavailable", 0, 0, 1, 1, 0)
 
-    summary = trace.summarize_context(context_ref, limit=2_000_000)
-    loop_count = max(0, int(summary.get("loop_count", 0) or 0))
-    context_state = state.load_context_state(context_ref)
+    if readonly:
+        from .learning_health import read_progress_inputs
+        try:
+            loop_count, context_state = read_progress_inputs(context_ref, config, now=now)
+        except (OSError, ValueError):
+            return OptimizationProgress("unavailable", 0, 0, interval, interval, 0)
+    else:
+        summary = trace.summarize_context(context_ref, limit=2_000_000)
+        loop_count = max(0, int(summary.get("loop_count", 0) or 0))
+        context_state = state.load_context_state(context_ref)
     last_trigger_count = max(
         0, int(context_state.get("autopilot_last_trigger_loop_count", 0) or 0)
     )
@@ -271,6 +279,9 @@ def _maybe_schedule_context(
     if progress.state != "ready":
         return None
     result = schedule_optimization_job(context_ref, dict(config), force=False)
+    if result.get("dispatched") is not True:
+        # Rejected/unavailable work must not consume the learning interval.
+        return result
     state._store_for_root().set_context_state(
         context_ref,
         {

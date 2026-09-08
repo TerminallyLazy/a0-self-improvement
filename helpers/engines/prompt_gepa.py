@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 from ..model_resolution import build_dspy_lm
 from ..prompt_artifacts import PromptArtifact
 from . import EngineBudget
+from .gepa import GepaEngine
 
 
 def _tokens(value: Any) -> set[str]:
@@ -84,7 +85,7 @@ class PromptGepaEngine:
             split = max(1, len(examples) - max(1, len(examples) // 4))
             trainset, valset = examples[:split], examples[split:] or examples[-1:]
 
-            def metric(example: Any, prediction: Any, trace: Any = None, **_kwargs: Any) -> Any:
+            def metric(example: Any, prediction: Any, trace: Any = None, pred_name: Any = None, pred_trace: Any = None) -> Any:
                 observed = str(getattr(prediction, "response", "") or "")
                 score = _score(getattr(example, "expected_response", ""), observed)
                 feedback = "Preserve the successful response behavior, follow the supplied tool contract, and avoid unsupported claims."
@@ -92,6 +93,7 @@ class PromptGepaEngine:
 
             replacements: list[dict[str, str]] = []
             scores: list[float] = []
+            reported_cost = 0.0
             started = time.monotonic()
             for component in components:
                 source = str(component.get("body") or "")[:20_000]
@@ -99,11 +101,19 @@ class PromptGepaEngine:
                 student = dspy.Predict(signature)
                 compiler = dspy.GEPA(
                     metric=metric, reflection_lm=lm, num_threads=budget.num_threads,
-                    max_metric_calls=max(8, budget.max_steps * max(2, len(examples)) * 2),
+                    max_metric_calls=min(budget.max_metric_calls, max(8, budget.max_steps * max(2, len(examples)) * 2)),
                     component_selector="round_robin",
                 )
                 with dspy.context(lm=lm):
                     compiled = compiler.compile(student=student, trainset=trainset, valset=valset)
+                observed_cost = GepaEngine._reported_cost(compiled)
+                if observed_cost is not None:
+                    reported_cost += observed_cost
+                    reproducibility["reported_cost_usd"] = reported_cost
+                if reported_cost > budget.max_cost_usd:
+                    return None, {**reproducibility, "status": "failed", "error": "compile_cost_budget_exceeded"}
+                if time.monotonic() - started > budget.max_compile_seconds:
+                    return None, {**reproducibility, "status": "failed", "error": "compile_runtime_budget_exceeded"}
                 optimized = _instructions(compiled)
                 if not optimized or optimized == source or len(optimized) > 30_000:
                     continue

@@ -135,6 +135,17 @@
             </div>
           </div>
 
+          <section class="automation-next" aria-label="Learning health">
+            <div class="automation-next-copy">
+              <strong>Learning health · selected chat</strong>
+              <span x-text="$store.dspyRlm.learningNextAction"></span>
+              <span x-show="$store.dspyRlm.automation.learning_health.state === 'unavailable'">Learning history unavailable</span>
+              <span x-text="`Latest ${$store.dspyRlm.automation.learning_health.recorded_jobs} attempts: ${$store.dspyRlm.automation.learning_health.candidates} candidates · ${$store.dspyRlm.automation.learning_health.skipped} skipped · ${$store.dspyRlm.automation.learning_health.unsuccessful} failed or rejected`"></span>
+              <small x-text="$store.dspyRlm.learningBudgetLabel"></small>
+              <small>Candidate creation does not prove improvement. GEPA budgets apply separately to each prompt component; reflection and validation add calls. Token and dollar totals are not yet available.</small>
+            </div>
+          </section>
+
           <p class="metric-scope">Selected chat</p>
           <div class="automation-metrics">
             <div><span>Observations</span><strong x-text="$store.dspyRlm.automation.counts.observations"></strong></div>
