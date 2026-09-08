@@ -5,6 +5,16 @@ Version 2.1.1 repairs metadata-only evidence classification so existing tool tra
 
 An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordinary Agent Zero behavior available while typed observation, candidate search, certified replay, evidence reduction, canary, activation, monitoring, rollback, privacy migration, or operator authority is unavailable.
 
+## Outcome-aware learning (2.3.0)
+
+The optimizer now prioritizes objective categories with observed failures instead of always choosing the latest objective. Tool capture preserves exact structured `Response.additional["success"]` booleans, records other outcomes as unknown, and treats a loop finishing as a neutral observation. Unknown results are excluded from failure counts and success-rate denominators throughout objective sampling, deterministic RLM analysis, and sample summaries. Unknown-only evidence remains review-only and does not invoke the model-backed RLM.
+
+New tool and loop events share an opaque message-family reference, with separately hashed occurrence identities. This prevents loop counters reused in later messages from mixing unrelated outcomes, retains separate messages under per-loop limits, and distinguishes multiple identical tool calls within a timestamp. Older unscoped events use a conservative chronological loop window without the old adjacent-loop fallback. Historical records are not rewritten.
+
+The Overview's **Where Agent Zero can improve** panel ranks learning areas by explicit failures and shows successes, failures, and unknown coverage separately. It reads at most 2,000 retained tool events for the selected chat within the configured TTL, using a read-only connection. Older automatic outcome labels lack reliable provenance and are excluded from this new panel. Existing compatibility evidence remains available to the optimizer with its stored labels; this release cannot retrospectively recover whether those old calls actually succeeded.
+
+For tool integrations, emit an exact boolean in `Response.additional["success"]` when the tool can attest its own outcome. Missing values, strings, and numbers remain unknown. Tool output prose is never inspected to guess a result. These signals guide candidate search; they do not by themselves prove task correctness, grant activation authority, or replace certified replay and live canaries.
+
 ## Learning health and evaluation budgets (2.2.0)
 
 The live Overview now shows a bounded summary of the selected chat's latest 20 jobs, distinguishing candidate proposals, skipped work, and failed or rejected attempts. A next-step message explains common setup and evidence blockers. This is a history of attempts, not a quality score or proof that a candidate improved behavior. Candidate validation, canary outcomes, and activation receipts remain the evidence for acceptance.

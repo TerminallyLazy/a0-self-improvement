@@ -111,14 +111,17 @@ def _group_tool_events(
                 "calls": 0,
                 "success": 0,
                 "failure": 0,
+                "unknown": 0,
                 "latest_preview": "",
             },
         )
         bucket["calls"] += 1
-        if event.get("success", True):
+        if event.get("success", True) is True:
             bucket["success"] += 1
-        else:
+        elif event.get("success", True) is False:
             bucket["failure"] += 1
+        else:
+            bucket["unknown"] += 1
         if not bucket["latest_preview"]:
             bucket["latest_preview"] = str(event.get("response_preview", "") or "")
 
@@ -154,25 +157,22 @@ def collect_recent_objectives(context_id: str, cfg: dict[str, Any]) -> list[dict
     recent: list[dict[str, Any]] = []
 
     for idx, loop_event in enumerate(reversed(sampled[-max_samples:])):
-        loop_iteration = int(loop_event.get("loop_iteration", -1) or -1)
+        loop_iteration = int(loop_event.get("loop_iteration", -1))
         window_start = _safe_ts(loop_event.get("ts"))
         window_end = window_start
 
-        tool_events = [
-            event
-            for event in events
-            if str(event.get("event_type")) == "tool" and int(event.get("loop_iteration", -1) or -1) == loop_iteration
+        objective, objective_ref = _objective_representation(loop_event)
+        loop_position = next(i for i, item in enumerate(events) if item is loop_event)
+        previous_loop = max((i for i in range(loop_position) if events[i].get("event_type") == "loop"), default=-1)
+        scoped_tools = [event for event in events if event.get("event_type") == "tool"
+                        and event.get("objective_ref") == objective_ref
+                        and int(event.get("loop_iteration", -1)) == loop_iteration]
+        tool_events = scoped_tools or [
+            event for event in events[previous_loop + 1:loop_position]
+            if event.get("event_type") == "tool"
+            and int(event.get("loop_iteration", -1)) == loop_iteration
+            and not event.get("objective_ref")
         ]
-        if not tool_events:
-            # fallback: gather nearby tool events around this loop iteration
-            lo = loop_iteration - 1
-            hi = loop_iteration + 1
-            tool_events = [
-                event
-                for event in events
-                if str(event.get("event_type")) == "tool"
-                and int(event.get("loop_iteration", -1) or -1) in (lo, hi)
-            ]
         if tool_events:
             window_start = min(window_start, min(_safe_ts(e.get("ts")) for e in tool_events))
             window_end = max(window_end, max(_safe_ts(e.get("ts")) for e in tool_events))
@@ -183,8 +183,8 @@ def collect_recent_objectives(context_id: str, cfg: dict[str, Any]) -> list[dict
         # event metadata.  The opaque reference remains a stable family key.
         bucket = infer_bucket(objective, tool_names)
 
-        success = sum(1 for item in tool_events if bool(item.get("success", True)))
-        failure = sum(1 for item in tool_events if not bool(item.get("success", True)))
+        success = sum(1 for item in tool_events if item.get("success", True) is True)
+        failure = sum(1 for item in tool_events if item.get("success", True) is False)
         latest_tool = tool_names[0] if tool_names else ""
 
         contract = [str(item["tool"]) for item in _group_tool_events(tool_events)]
@@ -215,9 +215,10 @@ def collect_recent_objectives(context_id: str, cfg: dict[str, Any]) -> list[dict
                 "trace_window_events": len(tool_events) + 1,
                 "success_events": int(success),
                 "failure_events": int(failure),
+                "unknown_events": len(tool_events) - success - failure,
                 "objective_confidence": min(1.0, 1.0 / (1.0 + max(0, failure - success + 2))),
                 "tool_contract": contract,
-                "tool_error_classes": sorted({"tool_error" for item in tool_events if not item.get("success", True)}),
+                "tool_error_classes": sorted({"tool_error" for item in tool_events if item.get("success", True) is False}),
                 "loop_iteration": loop_iteration,
                 "latest_response": _short(latest_response, int(cfg.get("optimization", {}).get("max_sample_size_chars", 2000)),),
                 "event_count": len(tool_events) + 1,
@@ -232,8 +233,9 @@ def collect_recent_objectives(context_id: str, cfg: dict[str, Any]) -> list[dict
         sig = item["objective_signature"]
         if sig not in deduped:
             deduped[sig] = item
-    ordered = list(reversed(deduped.values()))
-    ordered.sort(key=lambda item: int(item.get("loop_iteration", -1)), reverse=True)
+    # The sampled events are already newest-first. Loop counters restart
+    # across user messages and cannot define cross-message recency.
+    ordered = list(deduped.values())
     return ordered[:max_samples]
 
 

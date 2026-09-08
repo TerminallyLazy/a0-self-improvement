@@ -198,9 +198,10 @@ def summarize_context(context_id: str, limit: int = 200) -> dict[str, Any]:
     loop_events = [event for event in events if event.get("event_type") == "loop"]
     tool_events = [event for event in events if event.get("event_type") == "tool"]
     counter = Counter(event.get("tool") for event in tool_events if event.get("tool") not in {"", "none", None})
-    success_count = sum(1 for event in tool_events if event.get("success", True))
+    from .outcomes import outcome_counts
+    outcomes = outcome_counts(tool_events)
     return {"event_count": len(events), "loop_count": len(loop_events), "tool_count": len(tool_events),
-            "success_rate": float(success_count) / max(1, len(tool_events)),
+            **outcomes,
             "top_tools": [{"tool": tool, "count": count} for tool, count in counter.most_common(5)],
             "latest_objective": "", "latest_response": "", "latest_ts": events[-1].get("ts", "")}
 

@@ -16,6 +16,7 @@ import time
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
+from .outcomes import explicit_outcome, outcome_counts
 from .redaction import RedactionPolicy, content_hash, redact_text, safe_label, sanitize_mapping
 
 
@@ -28,7 +29,7 @@ _SAFE_EVENT_FIELDS = frozenset(
         "loop_iteration", "objective_bucket", "objective_ref", "objective_present",
         "objective_preview", "error_class", "ts", "timestamp", "content_preview",
         "content_ref", "payload_ref", "event_ref", "redacted",
-        "projection_version",
+        "projection_version", "occurrence_ref", "outcome_source",
     }
 )
 
@@ -113,7 +114,9 @@ def _context_id(value: Any) -> str:
     return "ctx_" + content_hash(text).rsplit(":", 1)[-1][:24]
 
 
-def _error_class(value: Any, *, success: bool) -> str:
+def _error_class(value: Any, *, success: bool | None) -> str:
+    if success is None:
+        return "unknown"
     if success:
         return "none"
     candidate = safe_label(value, fallback="failure")
@@ -142,7 +145,7 @@ def sanitize_event(event: Mapping[str, Any] | None, *, policy: EvidencePolicy | 
     event_type = str(event.get("event_type") or "").lower()
     if event_type not in _EVENT_TYPES:
         return None
-    success = bool(event.get("success", True))
+    success = explicit_outcome(event.get("success", True))
     content = _content_value(event)
     objective = event.get("objective")
     safe: dict[str, Any] = {
@@ -159,6 +162,10 @@ def sanitize_event(event: Mapping[str, Any] | None, *, policy: EvidencePolicy | 
         "redacted": True,
         "projection_version": EVENT_VERSION,
     }
+    if isinstance(event.get("occurrence_ref"), str) and event["occurrence_ref"]:
+        safe["occurrence_ref"] = content_hash(event["occurrence_ref"])
+    if type(event.get("outcome_source")) is str and event.get("outcome_source") in {"structured_tool_result", "unknown"}:
+        safe["outcome_source"] = event["outcome_source"]
     # A loop objective must survive as either an explicitly approved, redacted
     # representation or opaque metadata.  The latter is enough to construct a
     # sample without silently treating response text as the user's objective.
@@ -203,15 +210,17 @@ def project_event(event: Mapping[str, Any], *, policy: EvidencePolicy | None = N
         "event_type": event_type,
         "agent_name": safe_label(projected.get("agent_name"), fallback="unknown"),
         "tool": safe_label(projected.get("tool"), fallback="none"),
-        "success": bool(projected.get("success", True)),
+        "success": explicit_outcome(projected.get("success", True)),
         "loop_iteration": _bounded_int(projected.get("loop_iteration")),
         "objective_bucket": safe_label(projected.get("objective_bucket"), fallback="unknown"),
-        "error_class": _error_class(projected.get("error_class"), success=bool(projected.get("success", True))),
+        "error_class": _error_class(projected.get("error_class"), success=explicit_outcome(projected.get("success", True))),
         "ts": _iso_timestamp(projected.get("ts")),
         "redacted": True,
         "projection_version": EVENT_VERSION,
     }
-    for key in ("content_ref", "payload_ref", "event_ref", "objective_ref"):
+    if type(projected.get("outcome_source")) is str and projected.get("outcome_source") in {"structured_tool_result", "unknown"}:
+        result["outcome_source"] = projected["outcome_source"]
+    for key in ("content_ref", "payload_ref", "event_ref", "objective_ref", "occurrence_ref"):
         value = projected.get(key)
         if isinstance(value, str) and _HASH_REF_RE.fullmatch(value):
             result[key] = value
@@ -247,11 +256,11 @@ def retain_events(events: Iterable[Mapping[str, Any]], *, policy: EvidencePolicy
     clean.sort(key=lambda item: (_timestamp(item["ts"]), str(item.get("event_ref", ""))))
     # Keep newest items within each cap. A reverse pass makes cap behavior stable.
     by_context: defaultdict[str, int] = defaultdict(int)
-    by_loop: defaultdict[tuple[str, int], int] = defaultdict(int)
+    by_loop: defaultdict[tuple[str, str, int], int] = defaultdict(int)
     retained_reverse: list[dict[str, Any]] = []
     for event in reversed(clean):
         context = event["context_id"]
-        loop_key = (context, int(event["loop_iteration"]))
+        loop_key = (context, str(event.get("objective_ref") or ""), int(event["loop_iteration"]))
         if policy.max_events_per_context <= 0 or policy.max_events_per_loop <= 0:
             continue
         if by_context[context] >= policy.max_events_per_context or by_loop[loop_key] >= policy.max_events_per_loop:
@@ -296,7 +305,7 @@ def objective_sample(
     bucket = safe_label(objective_bucket, fallback="unknown")
     family_input = objective_id or bucket
     family_ref = content_hash({"objective": str(family_input).strip().lower(), "bucket": bucket})
-    successful = sum(bool(event["success"]) for event in selected)
+    outcomes = outcome_counts(selected)
     tool_calls = sum(event["event_type"] == "tool" for event in selected)
     tool_refs = tuple(sorted({str(event.get("event_ref")) for event in selected if event.get("event_ref")}))
     sample = {
@@ -308,9 +317,7 @@ def objective_sample(
         "event_refs": tool_refs,
         "event_count": len(selected),
         "tool_call_count": tool_calls,
-        "success_count": successful,
-        "failure_count": len(selected) - successful,
-        "success_rate": round(successful / len(selected), 6) if selected else 0.0,
+        **outcomes,
         "trace_window": MappingProxyType({
             "start_ts": _timestamp(selected[0]["ts"]) if selected else 0.0,
             "end_ts": _timestamp(selected[-1]["ts"]) if selected else 0.0,

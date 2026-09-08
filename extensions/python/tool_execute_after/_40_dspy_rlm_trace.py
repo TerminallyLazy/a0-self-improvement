@@ -65,15 +65,14 @@ class DspyRlmToolTrace(Extension):
             terminal = response.break_loop
             if type(iteration) is not int or iteration < -1 or type(terminal) is not bool:
                 return
+            additional = response.additional
+            explicit_success = (
+                additional.get("success")
+                if isinstance(additional, dict) and type(additional.get("success")) is bool
+                else None
+            )
             params = getattr(loop_data, "params_persistent", None)
             if type(params) is dict:
-                additional = response.additional
-                explicit_success = (
-                    additional.get("success")
-                    if isinstance(additional, dict)
-                    and type(additional.get("success")) is bool
-                    else None
-                )
                 if explicit_success is False:
                     params[FRAMEWORK_OUTCOME_KEY] = False
                 elif terminal and params.get(FRAMEWORK_OUTCOME_KEY) is not False:
@@ -117,6 +116,9 @@ class DspyRlmToolTrace(Extension):
                 loop_iteration=iteration,
                 terminal=terminal,
                 config=cfg,
+                success=explicit_success,
+                message_ref=getattr(getattr(loop_data, "user_message", None), "id", None),
+                occurrence_ref=occurrence_ref,
             )
         except Exception:
             # Observation must never interfere with tool continuation or retain

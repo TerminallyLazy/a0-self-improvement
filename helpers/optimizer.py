@@ -710,8 +710,11 @@ def run_optimization_sync(
             if manage_context_state:
                 state_module.mark_optimization_complete(context_id, prompt_result)
             return prompt_result
-        objective_bucket = str((objective_rows[0] if objective_rows else {}).get("objective_bucket", "reasoning") or "reasoning")
-        objective_signature = str((objective_rows[0] or {}).get("objective_signature") if objective_rows else "")
+        from .learning_insights import select_learning_target
+        target = select_learning_target(objective_rows)
+        objective_bucket = target["bucket"]
+        objective_signature = target["signature"]
+        optimization_result["learning_target"] = target
         candidate, gepa_attempt = _candidate_engine_result(context_id, objective_bucket, cfg)
         candidate_artifact = candidate.artifact if candidate.succeeded else None
         mode = candidate.engine_kind if candidate_artifact is not None else "none"
