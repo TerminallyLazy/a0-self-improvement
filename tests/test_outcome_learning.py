@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from usr.plugins.dspy_rlm.helpers import autopilot, config, dspy_runtime, evidence, learning_insights, objective, paths, trace
+from usr.plugins.dspy_rlm.helpers import autopilot, config, dspy_runtime, evidence, learning_insights, objective, paths, trace, optimizer
 from usr.plugins.dspy_rlm.helpers.outcomes import outcome_counts
 from usr.plugins.dspy_rlm.helpers.rlm import EvidenceIndex, RlmQuery
 
@@ -133,6 +133,22 @@ class OutcomeLearningTests(unittest.TestCase):
                     self.assertIs(captured['success'],value if type(value) is bool else None)
                     self.assertNotIn('private output',json.dumps(captured))
                     self.assertEqual(captured['objective'],'message_ref:message-id')
+
+    def test_failure_evidence_reaches_an_actionable_candidate_without_model_calls(self):
+        rows=[self.event(False,occurrence='failure-one'),self.event(False,occurrence='failure-two'),
+              self.event(None,event_type='loop',occurrence='loop')]
+        with patch.object(objective.trace,'read_context_events',return_value=rows):
+            samples=objective.collect_recent_objectives('chat',{})
+            target=learning_insights.select_learning_target(samples)
+            result,gepa=optimizer._candidate_engine_result('chat',target['bucket'],
+                {'rlm':{'enabled':False},'optimization':{'enable_dspy_optimizer':False}})
+        self.assertEqual(target['bucket'],'shell')
+        self.assertEqual(target['reason'],'observed_failures')
+        self.assertTrue(result.succeeded)
+        self.assertIsNone(gepa)
+        rules={rule[0] for rule in result.artifact.rules}
+        self.assertIn('check_tool_result',rules)
+        self.assertIn('retry_after_failure',rules)
 
     def test_readonly_insights_are_context_scoped_and_bounded(self):
         with tempfile.TemporaryDirectory() as folder,patch.object(paths,'STORE_FILE',Path(folder)/'store.sqlite'):
