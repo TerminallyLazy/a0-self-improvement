@@ -135,6 +135,17 @@
             </div>
           </div>
 
+          <section class="automation-next" aria-label="Learning health">
+            <div class="learning-health-copy">
+              <strong>Learning health · selected chat</strong>
+              <span x-text="$store.dspyRlm.learningNextAction"></span>
+              <span x-show="$store.dspyRlm.automation.learning_health.state === 'unavailable'">Learning history unavailable</span>
+              <span x-text="`Latest ${$store.dspyRlm.automation.learning_health.recorded_jobs} attempts: ${$store.dspyRlm.automation.learning_health.candidates} candidates · ${$store.dspyRlm.automation.learning_health.skipped} skipped · ${$store.dspyRlm.automation.learning_health.unsuccessful} failed or rejected`"></span>
+              <small x-text="$store.dspyRlm.learningBudgetLabel"></small>
+              <small>Candidate creation does not prove improvement. GEPA budgets apply separately to each prompt component; reflection and validation add calls. Token and dollar totals are not yet available.</small>
+            </div>
+          </section>
+
           <p class="metric-scope">Selected chat</p>
           <div class="automation-metrics">
             <div><span>Observations</span><strong x-text="$store.dspyRlm.automation.counts.observations"></strong></div>
@@ -609,9 +620,9 @@
       #a0si-operator .button { display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; border-radius:9px; padding:10px 14px; font-weight:700; }
       #a0si-operator .button:disabled { opacity:.42; cursor:not-allowed; }
       #a0si-operator .text-button { border:0; background:none; color:var(--a0si-accent); }
-      #a0si-operator .context-band { margin:20px 0 12px; padding:12px 14px; border:1px solid var(--a0si-line); border-radius:12px; background:rgba(1,7,15,.44); }
+      #a0si-operator .context-band { flex-wrap:wrap; margin:20px 0 12px; padding:12px 14px; border:1px solid var(--a0si-line); border-radius:12px; background:rgba(1,7,15,.44); }
       #a0si-operator .filter { display:flex; align-items:center; gap:10px; min-width:0; color:var(--a0si-soft); }
-      #a0si-operator .context-picker { position:relative; display:grid; grid-template-columns:auto minmax(220px,360px); align-items:center; gap:10px; min-width:0; color:var(--a0si-soft); }
+      #a0si-operator .context-picker { flex:1 1 300px; position:relative; display:grid; grid-template-columns:auto minmax(220px,360px); align-items:center; gap:10px; min-width:0; color:var(--a0si-soft); }
       #a0si-operator .context-label { color:var(--a0si-soft); }
       #a0si-operator .project-context-button,
       #a0si-operator .project-chat-option { appearance:none; height:auto; border:1px solid var(--a0si-line); color:var(--a0si-ink); background:#091427; cursor:pointer; }
@@ -635,7 +646,7 @@
       #a0si-operator .project-chat-option.is-selected { border-color:var(--a0si-accent); background:rgba(142,171,255,.14); }
       #a0si-operator input,
       #a0si-operator select { min-width:0; color:var(--a0si-ink); border:1px solid var(--a0si-line); background:#091427; border-radius:7px; padding:9px 11px; }
-      #a0si-operator .notice { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; color:var(--a0si-warn); }
+      #a0si-operator .notice { flex:1 1 360px; display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; color:var(--a0si-warn); }
       #a0si-operator .notice span { overflow-wrap:break-word; }
       #a0si-operator .view-tabs { display:flex; gap:7px; margin-bottom:0; padding:4px 0 17px; overflow-x:auto; scrollbar-width:thin; }
       #a0si-operator .view-tab { flex:0 0 auto; border-radius:999px; padding:9px 13px; color:var(--a0si-soft); }
@@ -657,6 +668,9 @@
       #a0si-operator .automation-next-copy { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:0; }
       #a0si-operator .automation-next-copy strong { color:var(--a0si-soft); font-size:12px; font-weight:650; }
       #a0si-operator .automation-next-copy span { min-width:0; color:var(--a0si-ink); font-size:13px; font-weight:750; text-align:right; overflow-wrap:anywhere; }
+      #a0si-operator .learning-health-copy { display:grid; gap:8px; min-width:0; line-height:1.5; overflow-wrap:anywhere; }
+      #a0si-operator .learning-health-copy strong { color:var(--a0si-accent-bright); }
+      #a0si-operator .learning-health-copy small { color:var(--a0si-soft); }
       #a0si-operator .automation-next-track { position:relative; height:10px; overflow:hidden; border:1px solid rgba(142,171,255,.18); border-radius:999px; background:rgba(3,11,24,.78); box-shadow:inset 0 1px 3px rgba(0,0,0,.42),0 1px 0 rgba(255,255,255,.025); }
       #a0si-operator .automation-next-track > span { position:relative; display:block; width:100%; height:100%; overflow:hidden; border-radius:inherit; background:linear-gradient(90deg,var(--a0si-accent),#789cff 56%,var(--a0si-ok)); box-shadow:inset 0 1px 0 rgba(255,255,255,.28); transform-origin:left center; transition:transform .65s cubic-bezier(.22,1,.36,1); }
       #a0si-operator .automation-next-track > span::after { position:absolute; inset:0; content:""; background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.32) 48%,transparent 66%); transform:translateX(-115%); }
@@ -784,7 +798,8 @@
         #a0si-operator .automation-worker-facts { width:100%; min-width:0; }
         #a0si-operator .automation-next-copy { align-items:flex-start; flex-direction:column; gap:4px; }
         #a0si-operator .automation-next-copy span { text-align:left; }
-        #a0si-operator .context-picker { width:100%; grid-template-columns:1fr; }
+        #a0si-operator .context-picker { flex:auto; width:100%; grid-template-columns:1fr; }
+        #a0si-operator .notice { flex:auto; }
         #a0si-operator .project-chat-menu { left:0; right:auto; width:100%; }
         #a0si-operator .axis-grid,
         #a0si-operator .candidate-list,

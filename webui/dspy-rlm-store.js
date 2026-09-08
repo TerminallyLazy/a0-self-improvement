@@ -83,6 +83,39 @@ function safePairs(value) {
   );
 }
 
+const LEARNING_COPY = Object.freeze({
+  enable_plugin: "Enable Self-Improvement in the plugin hub to start learning.",
+  choose_review: "Observe records evidence. Choose Review in settings when you want candidate proposals.",
+  project_required: "Assign this chat to a project so improvements have a clear scope.",
+  project_setup_pending: "Send a message with automatic project setup enabled to prepare this project.",
+  worker_environment_not_ready: "The optimizer environment is not ready. Check plugin dependency status.",
+  observation_disabled: "Enable observation in settings to collect learning evidence.",
+  rlm_disabled: "Enable RLM analysis in settings to generate findings.",
+  gepa_disabled: "Enable GEPA in settings to generate optimized candidates.",
+  autopilot_reauthorization_required: "Select Autopilot again in settings to review and accept its current authority requirements.",
+  collect_evidence: "The last attempt lacked usable evidence. Continue a real task with tool results before another attempt.",
+  inspect_candidate_evidence: "The last attempt did not pass. Review its evidence and validation before trying again.",
+  learning_store_unavailable: "Learning history could not be read. Check the plugin store before scheduling more work.",
+  review_candidates: "A recent attempt produced a candidate. Open Candidates to inspect its validation and activation status.",
+  continue_working: "Continue your task. Eligible evidence will be evaluated at the configured interval.",
+});
+
+function learningHealth(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const outcomes = source.outcomes && typeof source.outcomes === "object" ? source.outcomes : {};
+  const limits = source.limits && typeof source.limits === "object" ? source.limits : {};
+  return {
+    state: ["ready", "empty", "unavailable"].includes(source.state) ? source.state : "unavailable",
+    recorded_jobs: Math.min(20, safeCount(source.recorded_jobs)),
+    candidates: Math.min(20, safeCount(outcomes.candidate)),
+    skipped: Math.min(20, safeCount(outcomes.skipped)),
+    unsuccessful: Math.min(20, safeCount(outcomes.failed) + safeCount(outcomes.rejected)),
+    next_action: safeToken(source.next_action),
+    gepa_metric_calls: Math.min(1000, safeCount(limits.gepa_metric_calls)),
+    rlm_calls: safeCount(limits.rlm_calls),
+  };
+}
+
 function unavailableAutomation() {
   return {
     observed_at: null,
@@ -104,6 +137,7 @@ function unavailableAutomation() {
       remaining_loops: 1,
       cooldown_remaining_seconds: 0,
     },
+    learning_health: learningHealth(),
     recent_activity: [],
     conversation_content: "excluded",
   };
@@ -167,6 +201,7 @@ function normalizeAutomation(raw, contextId) {
       remaining_loops: Math.max(0, requiredLoops - completedLoops),
       cooldown_remaining_seconds: safeCount(next.cooldown_remaining_seconds),
     },
+    learning_health: learningHealth(raw.learning_health),
     recent_activity: Array.isArray(raw.recent_activity) ? raw.recent_activity.slice(0, 10).map((item) => ({
       activity_id: safeToken(item?.activity_id),
       kind: safeToken(item?.kind),
@@ -590,6 +625,17 @@ export const store = createStore("dspyRlm", {
     return `Live · ${this.automation.live_refresh_seconds}s`;
   },
 
+  get learningNextAction() {
+    return LEARNING_COPY[this.automation.learning_health.next_action]
+      || "Check the blocked generation or promotion requirements below for the next step.";
+  },
+
+  get learningBudgetLabel() {
+    const health = this.automation.learning_health;
+    if (!health.gepa_metric_calls) return "Evaluation budget unavailable";
+    return `GEPA: ${health.gepa_metric_calls} metric evaluations per compile · RLM: ${health.rlm_calls} calls per analysis`;
+  },
+
   get automationModeLabel() {
     return this.automation.mode === "autopilot"
       ? "Autopilot"
@@ -611,6 +657,9 @@ export const store = createStore("dspyRlm", {
       const minutes = Math.max(1, Math.ceil(next.cooldown_remaining_seconds / 60));
       const wait = minutes >= 60 ? `${Math.ceil(minutes / 60)}h` : `${minutes}m`;
       return `${next.completed_loops}/${next.required_loops} loops — cooldown ${wait}`;
+    }
+    if (next.state === "ready" && this.automation.generation.state !== "ready") {
+      return `${next.completed_loops}/${next.required_loops} loops — setup requirements pending`;
     }
     if (next.state === "ready") {
       return `${next.completed_loops}/${next.required_loops} loops — ready to queue`;

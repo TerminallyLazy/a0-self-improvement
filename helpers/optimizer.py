@@ -332,6 +332,7 @@ def _engine_budget(cfg: dict[str, Any]) -> EngineBudget:
         max_compile_seconds=max(5.0, float(opt.get("max_compile_seconds", 120.0) or 120.0)),
         max_steps=max(1, int(opt.get("gepa_steps", opt.get("ge_pa_steps", 3)) or 3)),
         num_threads=max(1, int(opt.get("gepa_threads", opt.get("ge_pa_threads", 1)) or 1)),
+        max_metric_calls=int(opt.get("max_metric_calls", 24)),
     )
 
 

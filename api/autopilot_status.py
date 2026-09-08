@@ -12,6 +12,7 @@ from helpers.api import ApiHandler, Request, Response
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
 from usr.plugins.dspy_rlm.helpers import autopilot, dependencies, paths, worker_supervisor
+from usr.plugins.dspy_rlm.helpers import learning_health
 from usr.plugins.dspy_rlm.helpers.autopilot import settings_from_config
 from usr.plugins.dspy_rlm.helpers.v3.automatic_genesis import project_context_refs
 from usr.plugins.dspy_rlm.helpers.v3.autopilot_control_plane import (
@@ -85,8 +86,10 @@ def _legacy_runtime(
                 project_jobs[status] += count
                 if str(row["context_id"]) == selected_context_ref:
                     selected_jobs[status] = count
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+            result_column = "CASE WHEN length(result_json)<=262144 THEN result_json END" if "result_json" in columns else "NULL"
             job_rows = connection.execute(
-                f"SELECT job_key,status,updated_at FROM jobs WHERE context_id IN ({placeholders}) ORDER BY updated_at DESC LIMIT 8",
+                f"SELECT job_key,status,updated_at,{result_column} AS result_json FROM jobs WHERE context_id IN ({placeholders}) ORDER BY updated_at DESC LIMIT 8",
                 context_refs,
             ).fetchall()
             for row in job_rows:
@@ -101,7 +104,7 @@ def _legacy_runtime(
                     {
                         "activity_id": job_ref,
                         "kind": "candidate_work",
-                        "state": status,
+                        "state": learning_health.job_outcome(status, row["result_json"])[0],
                         "observed_at": stamp,
                     }
                 )
@@ -316,7 +319,7 @@ def _next_optimization(
             "remaining_loops": 1,
             "cooldown_remaining_seconds": 0,
         }
-    progress = [autopilot.optimization_progress(ref, config) for ref in context_refs]
+    progress = [autopilot.optimization_progress(ref, config, readonly=True) for ref in context_refs]
     rank = {"ready": 0, "cooldown": 1, "collecting": 2, "unavailable": 3}
     selected = min(
         progress,
@@ -451,6 +454,16 @@ def project_autopilot_status(
         key=lambda item: item["observed_at"],
         reverse=True,
     )[:10]
+    health = learning_health.read_learning_health(context_ref)
+    health["next_action"] = learning_health.next_action(
+        health, enabled=bool(config.get("enabled")), mode=settings.mode,
+        generation=list(generation_gates), promotion=list(promotion_gates),
+    )
+    health["limits"] = {
+        "gepa_metric_calls": int(optimization.get("max_metric_calls", 24)),
+        "rlm_calls": int(rlm.get("max_llm_calls", 8)),
+        "cost_accounting": "unavailable",
+    }
     return {
         "schema": AUTOPILOT_STATUS_SCHEMA,
         "context_ref": context_ref,
@@ -494,6 +507,7 @@ def project_autopilot_status(
         },
         "next_optimization": next_optimization,
         "recent_activity": recent,
+        "learning_health": health,
         "conversation_content": "excluded",
     }
 
@@ -511,6 +525,13 @@ class AutopilotStatus(ApiHandler):
         agent = getattr(context, "agent0", None) or context
         config = config_module.load_config(agent=agent)
         config = config_module.normalize_config(config if isinstance(config, dict) else None)
+        # Configuration enablement and the framework's plugin toggle are
+        # independent. A disabled extension cannot be advertised as learning.
+        try:
+            from helpers import plugins
+            config["enabled"] = bool(config.get("enabled")) and "dspy_rlm" in plugins.get_enabled_plugins(agent)
+        except Exception:
+            config["enabled"] = False
         get_data = getattr(context, "get_data", None)
         project_ref = get_data("project") if callable(get_data) else None
         project_ref = project_ref if type(project_ref) is str and _SAFE_REF.fullmatch(project_ref) else None

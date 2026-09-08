@@ -380,6 +380,7 @@ def normalize_config(config: dict[str, Any] | None) -> dict[str, Any]:
         "replay_audit_sample_size": 6,
         "max_concurrent_candidates": 4,
         "max_compile_seconds": 120.0,
+        "max_metric_calls": 24,
         "max_cost_usd": 5.0,
     }
     normalized["optimization"] = _coerce_matrix_bucket(
@@ -519,6 +520,9 @@ def normalize_config(config: dict[str, Any] | None) -> dict[str, Any]:
         optimization_defaults["max_concurrent_candidates"],
         1,
         16,
+    )
+    normalized_opt["max_metric_calls"] = _as_int(
+        normalized_opt.get("max_metric_calls"), 24, 1, 1000
     )
     normalized_opt["max_compile_seconds"] = _as_float(
         normalized_opt.get("max_compile_seconds"), optimization_defaults["max_compile_seconds"], 5.0, 3600.0

@@ -5,6 +5,14 @@ Version 2.1.1 repairs metadata-only evidence classification so existing tool tra
 
 An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordinary Agent Zero behavior available while typed observation, candidate search, certified replay, evidence reduction, canary, activation, monitoring, rollback, privacy migration, or operator authority is unavailable.
 
+## Learning health and evaluation budgets (2.2.0)
+
+The live Overview now shows a bounded summary of the selected chat's latest 20 jobs, distinguishing candidate proposals, skipped work, and failed or rejected attempts. A next-step message explains common setup and evidence blockers. This is a history of attempts, not a quality score or proof that a candidate improved behavior. Candidate validation, canary outcomes, and activation receipts remain the evidence for acceptance.
+
+`optimization.max_metric_calls` defaults to 24 (configurable from 1 to 1000) and caps the calculated GEPA metric evaluation budget passed to each compiler. Prompt components each have a separate compiler budget. GEPA checks stopping conditions between batches; reflection, RLM analysis, and post-compile validation add calls. This is not a strict token or dollar cap. Compile duration and reported cost limits are post-compile acceptance checks. The dashboard explicitly reports that complete token and dollar accounting is unavailable.
+
+The status endpoint respects the framework's plugin toggle and reads learning counters without constructing or migrating a store. A failed queue dispatch no longer consumes the learning interval or cooldown. Prompt GEPA scoring accepts the five-argument feedback callback used by DSPy.
+
 ## What it does
 
 - Stores strict canonical records, links, receipts, lifecycle events, activation scopes, operation slots, work leases, and budget authority in a v3 safe-projection store.

@@ -219,7 +219,7 @@ class GepaEngine:
             reflection_lm = build_dspy_lm(api, model_config_ref) if callable(getattr(api, "LM", None)) else None
             compiler = api.GEPA(
                 metric=_metric_factory(api),
-                max_metric_calls=max(8, budget.max_steps * max(2, len(examples)) * 2),
+                max_metric_calls=min(budget.max_metric_calls, max(8, budget.max_steps * max(2, len(examples)) * 2)),
                 reflection_lm=reflection_lm,
                 num_threads=budget.num_threads,
             )
