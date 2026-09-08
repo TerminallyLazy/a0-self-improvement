@@ -24,6 +24,11 @@ def analyze_with_dspy_rlm(index: EvidenceIndex, objective_bucket: str, cfg: Mapp
     settings = cfg.get("rlm") if isinstance(cfg.get("rlm"), Mapping) else {}
     if not bool(settings.get("enabled", False)):
         return ()
+    events = [dict(event) for event in index.events_for(objective_bucket=objective_bucket)]
+    if not events:
+        # An empty partition cannot support a finding. Do not spend a model
+        # call asking it to manufacture evidence or retry an impossible task.
+        return ()
     model_ref = resolve_dspy_model(cfg, "rlm").selector
     if not model_ref:
         return ()
@@ -32,7 +37,6 @@ def analyze_with_dspy_rlm(index: EvidenceIndex, objective_bucket: str, cfg: Mapp
     except Exception:
         return ()
 
-    events = [dict(event) for event in index.events_for(objective_bucket=objective_bucket)]
     manifest = {
         "schema": "dspy_rlm.evidence.v1", "objective_bucket": objective_bucket,
         "event_count": len(events),

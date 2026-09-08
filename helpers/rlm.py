@@ -195,6 +195,18 @@ class EvidenceIndex:
             "success": bool(event.get("success", True)),
             "error_class": _safe_identifier(event.get("error_class"), fallback="none"),
         }
+        # Metadata-only capture historically persisted an unknown bucket while
+        # objective collection inferred one from tool labels. Use the same
+        # classification after validation so existing traces remain queryable.
+        # This is a proposal-search label, never outcome or replay authority.
+        if (
+            projected["objective_bucket"] == "unknown"
+            and projected["event_type"] == "tool"
+            and projected["tool"] not in {"unknown", "none"}
+        ):
+            from .objective import infer_bucket
+
+            projected["objective_bucket"] = infer_bucket("", [str(projected["tool"])])
         return MappingProxyType(projected)
 
     @property
