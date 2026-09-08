@@ -1,5 +1,8 @@
 # A0 Self-Improvement
 
+
+Version 2.1.1 repairs metadata-only evidence classification so existing tool traces with an unknown bucket can feed the matching candidate search. Empty evidence partitions return before resolving or invoking an RLM model. Raw evidence rejection and replay, canary, and activation gates remain enforced.
+
 An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordinary Agent Zero behavior available while typed observation, candidate search, certified replay, evidence reduction, canary, activation, monitoring, rollback, privacy migration, or operator authority is unavailable.
 
 ## What it does
