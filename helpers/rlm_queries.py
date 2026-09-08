@@ -9,6 +9,8 @@ from collections import Counter, defaultdict
 from dataclasses import replace
 from typing import TYPE_CHECKING, Mapping
 
+from .outcomes import outcome_counts
+
 if TYPE_CHECKING:
     from .rlm import EvidenceIndex, RlmFinding, RlmQuery
 
@@ -65,16 +67,14 @@ def _references(events: tuple[Mapping[str, object], ...]) -> tuple[str, ...]:
 def aggregate_metrics(index: "EvidenceIndex", query: "RlmQuery", max_evidence_chars: int) -> "RlmFinding":
     events = _events(index, query, max_evidence_chars)
     total = len(events)
-    successful = sum(bool(event["success"]) for event in events)
+    outcomes = outcome_counts(events)
     buckets = Counter(str(event["objective_bucket"]) for event in events)
     metrics = {
         "event_count": total,
-        "success_count": successful,
-        "failure_count": total - successful,
-        "success_rate": round(successful / total, 6) if total else 0.0,
+        **outcomes,
         "bucket_count": len(buckets),
     }
-    return _finding(query, status="ok" if total else "empty", summary="Aggregate metrics computed from bounded redacted evidence.", metrics=metrics, refs=_references(events), derivation=("aggregate_metrics",))
+    return _finding(query, status=("ok" if outcomes["known_outcome_count"] else "review_only") if total else "empty", summary="Aggregate metrics computed from bounded redacted evidence.", metrics=metrics, refs=_references(events), derivation=("aggregate_metrics",))
 
 
 def objective_bucket(index: "EvidenceIndex", query: "RlmQuery", max_evidence_chars: int) -> "RlmFinding":
@@ -83,28 +83,29 @@ def objective_bucket(index: "EvidenceIndex", query: "RlmQuery", max_evidence_cha
         return _finding(query, status="review_only", summary="Objective bucket label is required.", metrics={}, refs=(), derivation=("invalid_bucket",))
     events = _events(index, query, max_evidence_chars)
     total = len(events)
-    successful = sum(bool(event["success"]) for event in events)
-    return _finding(query, status="ok" if total else "empty", summary="Objective bucket metrics computed from bounded redacted evidence.", metrics={"objective_bucket": bucket, "event_count": total, "success_count": successful, "failure_count": total - successful, "success_rate": round(successful / total, 6) if total else 0.0}, refs=_references(events), derivation=("objective_bucket",))
+    outcomes = outcome_counts(events)
+    return _finding(query, status=("ok" if outcomes["known_outcome_count"] else "review_only") if total else "empty", summary="Objective bucket metrics computed from bounded redacted evidence.", metrics={"objective_bucket": bucket, "event_count": total, **outcomes}, refs=_references(events), derivation=("objective_bucket",))
 
 
 def error_cluster(index: "EvidenceIndex", query: "RlmQuery", max_evidence_chars: int) -> "RlmFinding":
     events = _events(index, query, max_evidence_chars)
-    errors = Counter(str(event["error_class"]) for event in events if not bool(event["success"]))
+    errors = Counter(str(event["error_class"]) for event in events if event["success"] is False)
     # Fixed count representation avoids reflecting arbitrary free-form error content.
     metrics = {"event_count": len(events), "failure_count": sum(errors.values()), "error_cluster_count": len(errors), "largest_cluster_count": max(errors.values(), default=0)}
-    return _finding(query, status="ok" if events else "empty", summary="Failure clusters counted from bounded redacted labels.", metrics=metrics, refs=_references(events), derivation=("error_cluster",))
+    return _finding(query, status=("ok" if outcome_counts(events)["known_outcome_count"] else "review_only") if events else "empty", summary="Failure clusters counted from bounded redacted labels.", metrics=metrics, refs=_references(events), derivation=("error_cluster",))
 
 
 def tool_reliability(index: "EvidenceIndex", query: "RlmQuery", max_evidence_chars: int) -> "RlmFinding":
     events = _events(index, query, max_evidence_chars)
     counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    events = tuple(event for event in events if event["event_type"] == "tool")
     for event in events:
         tool = str(event["tool"])
         counts[tool][0] += 1
-        counts[tool][1] += int(bool(event["success"]))
-    unreliable = sum(1 for calls, successes in counts.values() if calls and successes < calls)
-    metrics = {"event_count": len(events), "tool_count": len(counts), "tools_with_failure": unreliable}
-    return _finding(query, status="ok" if events else "empty", summary="Tool reliability aggregated from bounded redacted labels.", metrics=metrics, refs=_references(events), derivation=("tool_reliability",))
+        counts[tool][1] += int(event["success"] is False)
+    unreliable = sum(1 for calls, failures in counts.values() if failures)
+    metrics = {"event_count": len(events), "tool_count": len(counts), "tools_with_failure": unreliable, **outcome_counts(events)}
+    return _finding(query, status=("ok" if outcome_counts(events)["known_outcome_count"] else "review_only") if events else "empty", summary="Tool reliability aggregated from bounded redacted labels.", metrics=metrics, refs=_references(events), derivation=("tool_reliability",))
 
 
 def predecessor_findings(index: "EvidenceIndex", query: "RlmQuery", max_evidence_chars: int) -> "RlmFinding":

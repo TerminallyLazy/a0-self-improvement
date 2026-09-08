@@ -110,6 +110,9 @@ def record_tool_metadata(
     loop_iteration: int,
     terminal: bool,
     config: Mapping[str, Any],
+    success: bool | None = None,
+    message_ref: str | None = None,
+    occurrence_ref: str | None = None,
 ) -> dict[str, Any] | None:
     """Append bounded tool metadata without arguments, results, or error text."""
 
@@ -123,7 +126,10 @@ def record_tool_metadata(
             "agent_name": "agent_zero",
             "tool": tool_name or "unknown",
             "loop_iteration": loop_iteration,
-            "success": True,
+            "success": success if type(success) is bool else None,
+            "outcome_source": "structured_tool_result" if type(success) is bool else "unknown",
+            "objective": f"message_ref:{message_ref}" if message_ref else "",
+            "occurrence_ref": occurrence_ref,
             "objective_bucket": "unknown",
             "response": "terminal" if terminal else "continuing",
         },
@@ -138,6 +144,7 @@ def observe_loop_and_schedule(
     message_ref: str,
     loop_iteration: int,
     config: Mapping[str, Any],
+    occurrence_ref: str | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Record one opaque loop fact and enqueue eligible project work.
 
@@ -154,7 +161,8 @@ def observe_loop_and_schedule(
             "event_type": "loop",
             "agent_name": "agent_zero",
             "loop_iteration": loop_iteration,
-            "success": True,
+            "success": None,
+            "occurrence_ref": occurrence_ref,
             "objective": f"message_ref:{message_ref}",
             "objective_bucket": "unknown",
             "response": "loop_completed",

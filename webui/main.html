@@ -146,6 +146,27 @@
             </div>
           </section>
 
+          <section class="automation-next" aria-label="Learning opportunities">
+            <div class="learning-health-copy">
+              <strong>Where Agent Zero can improve</strong>
+              <span>Structured tool outcomes from this chat guide the next learning target. Recurring failures receive priority.</span>
+              <small x-show="$store.dspyRlm.automation.learning_insights.state === 'unavailable'">Outcome insights are unavailable.</small>
+              <small x-show="$store.dspyRlm.automation.learning_insights.state === 'empty'">No new structured outcome telemetry yet. Continue a task to build the learning evidence.</small>
+              <small x-text="`${$store.dspyRlm.automation.learning_insights.successes} explicit successes · ${$store.dspyRlm.automation.learning_insights.failures} explicit failures · ${$store.dspyRlm.automation.learning_insights.unknown} unknown outcomes`"></small>
+              <div class="opportunity-list">
+                <template x-for="area in $store.dspyRlm.automation.learning_insights.opportunities" :key="area.bucket">
+                  <div class="opportunity-row">
+                    <strong x-text="area.label"></strong>
+                    <span x-text="area.state"></span>
+                    <small x-text="`${area.successes} succeeded · ${area.failures} failed · ${area.unknown} unknown`"></small>
+                  </div>
+                </template>
+              </div>
+              <small x-show="$store.dspyRlm.automation.learning_insights.older > 0" x-text="`${$store.dspyRlm.automation.learning_insights.older} older tool events have unverified outcome labels and are excluded from these insights.`"></small>
+              <small>Unknown is neither success nor failure. Tool outcomes identify learning opportunities; replay and canary evidence still decide whether a candidate helps.</small>
+            </div>
+          </section>
+
           <p class="metric-scope">Selected chat</p>
           <div class="automation-metrics">
             <div><span>Observations</span><strong x-text="$store.dspyRlm.automation.counts.observations"></strong></div>
@@ -668,6 +689,9 @@
       #a0si-operator .automation-next-copy { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:0; }
       #a0si-operator .automation-next-copy strong { color:var(--a0si-soft); font-size:12px; font-weight:650; }
       #a0si-operator .automation-next-copy span { min-width:0; color:var(--a0si-ink); font-size:13px; font-weight:750; text-align:right; overflow-wrap:anywhere; }
+      #a0si-operator .opportunity-list { display:grid; gap:8px; }
+      #a0si-operator .opportunity-row { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; padding:10px 0; border-top:1px solid var(--a0si-line); }
+      #a0si-operator .opportunity-row small { margin-left:auto; }
       #a0si-operator .learning-health-copy { display:grid; gap:8px; min-width:0; line-height:1.5; overflow-wrap:anywhere; }
       #a0si-operator .learning-health-copy strong { color:var(--a0si-accent-bright); }
       #a0si-operator .learning-health-copy small { color:var(--a0si-soft); }

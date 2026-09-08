@@ -192,7 +192,7 @@ class EvidenceIndex:
             "event_type": _safe_identifier(event.get("event_type"), fallback="unknown"),
             "objective_bucket": _safe_identifier(event.get("objective_bucket"), fallback="unknown"),
             "tool": _safe_identifier(event.get("tool", event.get("tool_name")), fallback="unknown"),
-            "success": bool(event.get("success", True)),
+            "success": event.get("success", True) if type(event.get("success", True)) is bool else None,
             "error_class": _safe_identifier(event.get("error_class"), fallback="none"),
         }
         # Metadata-only capture historically persisted an unknown bucket while

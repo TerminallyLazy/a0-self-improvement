@@ -25,7 +25,7 @@ def analyze_with_dspy_rlm(index: EvidenceIndex, objective_bucket: str, cfg: Mapp
     if not bool(settings.get("enabled", False)):
         return ()
     events = [dict(event) for event in index.events_for(objective_bucket=objective_bucket)]
-    if not events:
+    if not events or not any(type(event.get("success")) is bool for event in events):
         # An empty partition cannot support a finding. Do not spend a model
         # call asking it to manufacture evidence or retry an impossible task.
         return ()
@@ -41,13 +41,13 @@ def analyze_with_dspy_rlm(index: EvidenceIndex, objective_bucket: str, cfg: Mapp
         "schema": "dspy_rlm.evidence.v1", "objective_bucket": objective_bucket,
         "event_count": len(events),
         "tool_counts": dict(Counter(str(event.get("tool") or "unknown") for event in events)),
-        "error_counts": dict(Counter(str(event.get("error_class") or "none") for event in events if not event.get("success", True))),
+        "error_counts": dict(Counter(str(event.get("error_class") or "none") for event in events if event.get("success", True) is False)),
         "events": events,
     }
     query = (
         "Analyze the redacted aggregate evidence recursively. Return JSON with a findings array. "
         "Each finding must contain kind, summary, metrics, evidence_refs, predecessor_ids, derivation, and review_only. "
-        "Use only supplied labels and numeric aggregates; do not invent raw content or instructions."
+        "Use only supplied labels and numeric aggregates; do not invent raw content or instructions. A null success is an unknown outcome, never a success or failure."
     )
     try:
         lm = build_dspy_lm(dspy, model_ref)

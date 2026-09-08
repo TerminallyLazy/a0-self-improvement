@@ -116,6 +116,25 @@ function learningHealth(value = {}) {
   };
 }
 
+const LEARNING_AREAS = Object.freeze({shell: "Command execution", tool_retrieval: "Retrieval", decision_making: "Decisions", reasoning: "Reasoning", unknown: "Unclassified"});
+const OPPORTUNITY_STATES = Object.freeze({recurring_failures: "Recurring failures", failure_observed: "Failure observed", collecting_outcomes: "Waiting for structured outcomes", observing: "Observing"});
+
+function learningInsights(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const totals = source.totals && typeof source.totals === "object" ? source.totals : {};
+  return {
+    state: ["ready", "empty", "unavailable"].includes(source.state) ? source.state : "unavailable",
+    successes: safeCount(totals.success_count), failures: safeCount(totals.failure_count),
+    unknown: safeCount(totals.unknown_count), older: safeCount(source.unverified_older_events),
+    opportunities: Array.isArray(source.opportunities) ? source.opportunities.slice(0, 5)
+      .filter(row => row && Object.hasOwn(LEARNING_AREAS, row.bucket))
+      .map(row => ({bucket: row.bucket, label: LEARNING_AREAS[row.bucket],
+        state: OPPORTUNITY_STATES[row.state] || "Observing",
+        successes: safeCount(row.success_count), failures: safeCount(row.failure_count),
+        unknown: safeCount(row.unknown_count)})) : [],
+  };
+}
+
 function unavailableAutomation() {
   return {
     observed_at: null,
@@ -138,6 +157,7 @@ function unavailableAutomation() {
       cooldown_remaining_seconds: 0,
     },
     learning_health: learningHealth(),
+    learning_insights: learningInsights(),
     recent_activity: [],
     conversation_content: "excluded",
   };
@@ -202,6 +222,7 @@ function normalizeAutomation(raw, contextId) {
       cooldown_remaining_seconds: safeCount(next.cooldown_remaining_seconds),
     },
     learning_health: learningHealth(raw.learning_health),
+    learning_insights: learningInsights(raw.learning_insights),
     recent_activity: Array.isArray(raw.recent_activity) ? raw.recent_activity.slice(0, 10).map((item) => ({
       activity_id: safeToken(item?.activity_id),
       kind: safeToken(item?.kind),

@@ -12,7 +12,7 @@ from helpers.api import ApiHandler, Request, Response
 
 from usr.plugins.dspy_rlm.helpers import config as config_module
 from usr.plugins.dspy_rlm.helpers import autopilot, dependencies, paths, worker_supervisor
-from usr.plugins.dspy_rlm.helpers import learning_health
+from usr.plugins.dspy_rlm.helpers import learning_health, learning_insights
 from usr.plugins.dspy_rlm.helpers.autopilot import settings_from_config
 from usr.plugins.dspy_rlm.helpers.v3.automatic_genesis import project_context_refs
 from usr.plugins.dspy_rlm.helpers.v3.autopilot_control_plane import (
@@ -508,6 +508,7 @@ def project_autopilot_status(
         "next_optimization": next_optimization,
         "recent_activity": recent,
         "learning_health": health,
+        "learning_insights": learning_insights.read_learning_insights(context_ref, config),
         "conversation_content": "excluded",
     }
 

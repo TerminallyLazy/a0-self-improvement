@@ -150,6 +150,7 @@ class DspyRlmOptimizationScheduler(Extension):
                     message_ref=message_ref,
                     loop_iteration=iteration,
                     config=cfg,
+                    occurrence_ref=occurrence_ref,
                 )
         except Exception:
             # Observation is optional to ordinary Agent Zero behavior. Missing,
