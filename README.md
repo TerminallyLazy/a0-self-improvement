@@ -5,6 +5,10 @@ Version 2.1.1 repairs metadata-only evidence classification so existing tool tra
 
 An authority-ranked Agent Zero self-improvement plugin. The v3 design keeps ordinary Agent Zero behavior available while typed observation, candidate search, certified replay, evidence reduction, canary, activation, monitoring, rollback, privacy migration, or operator authority is unavailable.
 
+## Agent Zero interface (2.3.1)
+
+The dashboard and configuration use Agent Zero's fonts, neutral surfaces, controls, and theme colors. Both follow the host's light and dark appearance. Settings styles are scoped to the plugin, sections retain their accessible Show/Hide controls, and narrow layouts stack fields without changing saved configuration. The six operator views and their authority boundaries are unchanged.
+
 ## Outcome-aware learning (2.3.0)
 
 The optimizer now prioritizes objective categories with observed failures instead of always choosing the latest objective. Tool capture preserves exact structured `Response.additional["success"]` booleans, records other outcomes as unknown, and treats a loop finishing as a neutral observation. Unknown results are excluded from failure counts and success-rate denominators throughout objective sampling, deterministic RLM analysis, and sample summaries. Unknown-only evidence remains review-only and does not invoke the model-backed RLM.

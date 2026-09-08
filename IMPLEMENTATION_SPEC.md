@@ -7,7 +7,7 @@ This is the implementation authority for the v3 redesign of the standalone A0 Se
 - Canonical source: TerminallyLazy/a0-self-improvement
 - Planning baseline: f5d319db98cc6f797811cc0035f88bcb7d9311ec
 - Initial Agent Zero compatibility target: b22a144bf59f15b1516084c9e7b88133ba92c8a9
-- Current plugin version: 2.3.0
+- Current plugin version: 2.3.1
 - The v3 architecture is delivered incrementally within the plugin 2.x release line.
 - Architecture authority: accepted ADRs 0001 through 0011
 - Ubiquitous language authority: CONTEXT.md
