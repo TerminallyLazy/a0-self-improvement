@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from usr.plugins.dspy_rlm.api import autopilot_status
 from usr.plugins.dspy_rlm.helpers import optimizer, paths
 from usr.plugins.dspy_rlm.helpers.guidance import GuidanceArtifact, render_guidance_artifact
@@ -286,7 +288,7 @@ def test_optimizer_persistence_immediately_publishes_review_candidate(
         "objective-signature-1",
         [],
         artifact,
-        render_guidance_artifact(artifact),
+        render_guidance_artifact(artifact, now=datetime(2026, 9, 3, tzinfo=timezone.utc)),
         {},
         {"passed": True},
         {},
