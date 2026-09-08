@@ -277,8 +277,8 @@ def test_optimizer_persistence_immediately_publishes_review_candidate(
         rules=[{"type": "verify_tool_contract"}],
         source_manifest_hashes=[source_hash],
         source_finding_hashes=[source_hash],
-        issued_at=now.isoformat(),
-        expires_at=(now + timedelta(days=1)).isoformat(),
+        issued_at=now.isoformat().replace("+00:00", "Z"),
+        expires_at=(now + timedelta(days=1)).isoformat().replace("+00:00", "Z"),
         engine_kind="gepa",
         engine_version="gepa-1",
     )
@@ -296,7 +296,7 @@ def test_optimizer_persistence_immediately_publishes_review_candidate(
         {"decision": "review_only"},
         None,
         {},
-        now.isoformat(),
+        now.isoformat().replace("+00:00", "Z"),
     )
 
     assert result["v3_publication_state"] == "review_only"
