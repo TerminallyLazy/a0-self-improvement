@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from usr.plugins.dspy_rlm.api import autopilot_status
 from usr.plugins.dspy_rlm.helpers import optimizer, paths
@@ -268,6 +268,7 @@ def test_optimizer_persistence_immediately_publishes_review_candidate(
     monkeypatch.setattr(optimizer.state_module, "_store_for_root", lambda: legacy_state)
     monkeypatch.setattr(paths, "SAFE_STORE_FILE", safe_path)
     monkeypatch.setattr(paths, "STORE_AUTHORITY_MANIFEST_FILE", manifest_path)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
     source_hash = "sha256:" + "1" * 64
     artifact = GuidanceArtifact.create(
         artifact_id="guidance-optimizer-1",
@@ -276,8 +277,8 @@ def test_optimizer_persistence_immediately_publishes_review_candidate(
         rules=[{"type": "verify_tool_contract"}],
         source_manifest_hashes=[source_hash],
         source_finding_hashes=[source_hash],
-        issued_at="2026-09-03T00:00:00Z",
-        expires_at="2026-09-04T00:00:00Z",
+        issued_at=now.isoformat(),
+        expires_at=(now + timedelta(days=1)).isoformat(),
         engine_kind="gepa",
         engine_version="gepa-1",
     )
@@ -288,14 +289,14 @@ def test_optimizer_persistence_immediately_publishes_review_candidate(
         "objective-signature-1",
         [],
         artifact,
-        render_guidance_artifact(artifact, now=datetime(2026, 9, 3, tzinfo=timezone.utc)),
+        render_guidance_artifact(artifact),
         {},
         {"passed": True},
         {},
         {"decision": "review_only"},
         None,
         {},
-        "2026-09-03T00:00:00Z",
+        now.isoformat(),
     )
 
     assert result["v3_publication_state"] == "review_only"
