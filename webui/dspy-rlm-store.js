@@ -658,6 +658,9 @@ export const store = createStore("dspyRlm", {
       const wait = minutes >= 60 ? `${Math.ceil(minutes / 60)}h` : `${minutes}m`;
       return `${next.completed_loops}/${next.required_loops} loops — cooldown ${wait}`;
     }
+    if (next.state === "ready" && this.automation.generation.state !== "ready") {
+      return `${next.completed_loops}/${next.required_loops} loops — setup requirements pending`;
+    }
     if (next.state === "ready") {
       return `${next.completed_loops}/${next.required_loops} loops — ready to queue`;
     }
